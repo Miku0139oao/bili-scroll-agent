@@ -1,0 +1,37 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "bili-scroll-agent",
+  "version": "0.1.0",
+  "description": "Daily Bilibili video scout with a shared Agent Skill and remote MCP service.",
+  "author": {
+    "name": "Bili Scroll Agent contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "bilibili",
+    "codex",
+    "hermes",
+    "cc-switch",
+    "mcp",
+    "agent-skill"
+  ],
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/bili-scroll-setup/SKILL.md",
+      "interface": {
+        "displayName": "刷B站 Agent",
+        "shortDescription": "每天讀完字幕，只留下值得看的 B 站影片",
+        "longDescription": "透過共用 Agent Skill 與遠端 MCP，在 Codex、Hermes Agent 與 cc-switch 使用同一份每日選題、日報、判重、互動與用量服務。",
+        "developerName": "Bili Scroll Agent contributors",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write", "MCP Tools", "Usage tracking"],
+        "defaultPrompt": [
+          "使用 $bili-scroll 現在替我刷一輪 B 站。",
+          "使用 $bili-scroll 查看今天的日報與剩餘額度。",
+          "使用 $bili-scroll-setup 連接我的 Bili Scroll Agent 服務。"
+        ]
+      }
+    }
+  }
+}
+

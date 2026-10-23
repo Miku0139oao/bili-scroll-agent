@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Test Python
+        run: |
+          uv run pytest -q
+          uv run ruff check server tests scripts
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: web/package.json
+
+      - name: Test and build WebUI
+        working-directory: web
+        run: |
+          bun install --frozen-lockfile
+          bun test
+          bun run build
+          bun audit
+
+      - name: Validate configuration fixtures
+        run: |
+          bash -n deploy/install.sh
+          bash -n deploy/update.sh
+          bash -n deploy/backup.sh
+

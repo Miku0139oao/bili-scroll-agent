@@ -1,0 +1,14 @@
+mcp_servers:
+  bili-scroll:
+    url: "https://YOUR-DOMAIN/api/mcp"
+    headers:
+      Authorization: "Bearer ${BILI_SCROLL_TOKEN}"
+    trust: untrusted
+    lazy: true
+    connect_timeout: 20
+    timeout: 300
+
+skills:
+  external_dirs:
+    - "D:/deepseek-bilbili-codex/plugins/bili-scroll-agent/skills"
+

@@ -1,0 +1,58 @@
+[project]
+name = "bili-scroll-agent"
+version = "0.1.0"
+description = "Cross-agent Bilibili video scout for Codex, Hermes Agent, and cc-switch"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { text = "MIT" }
+authors = [{ name = "Bili Scroll Agent contributors" }]
+dependencies = [
+  "aiosqlite>=0.21,<1",
+  "aiohttp>=3.12,<4",
+  "alembic>=1.16,<2",
+  "argon2-cffi>=25,<26",
+  "bilibili-api-python>=17.4.1,<18",
+  "cryptography>=45,<47",
+  "fastapi>=0.116,<1",
+  "mcp>=1.12,<2",
+  "pydantic-settings>=2.10,<3",
+  "pyotp>=2.9,<3",
+  "qrcode[pil]>=8.2,<9",
+  "sqlalchemy[asyncio]>=2.0.41,<3",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+asr = ["faster-whisper>=1.2,<2"]
+dev = [
+  "httpx>=0.28,<1",
+  "pytest>=8.4,<9",
+  "pytest-asyncio>=1.1,<2",
+  "ruff>=0.12,<1",
+]
+
+[project.scripts]
+bili-scroll = "server.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["server"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008", "E501", "SIM102", "SIM105", "SIM117"]
+
+[tool.ruff.lint.per-file-ignores]
+"server/migrations/versions/*" = ["I001", "UP007", "UP035"]
+

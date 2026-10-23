@@ -1,0 +1,7 @@
+[mcp_servers.bili-scroll]
+url = "http://127.0.0.1:8788/api/mcp"
+bearer_token_env_var = "BILI_SCROLL_TOKEN"
+default_tools_approval_mode = "auto"
+startup_timeout_sec = 20
+tool_timeout_sec = 300
+

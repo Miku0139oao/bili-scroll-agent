@@ -1,0 +1,28 @@
+[Unit]
+Description=Bili Scroll Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bili-scroll
+Group=bili-scroll
+WorkingDirectory=/opt/bili-scroll
+EnvironmentFile=/etc/bili-scroll/bili-scroll.env
+ExecStart=/opt/bili-scroll/.venv/bin/bili-scroll serve
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/bili-scroll
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
+

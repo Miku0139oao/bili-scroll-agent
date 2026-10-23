@@ -1,0 +1,7 @@
+interface:
+  display_name: "刷B站"
+  short_description: "每日 B 站選題、字幕判讀、日報與用量"
+  default_prompt: "使用 $bili-scroll 現在替我刷一輪 B 站，並保留 B 站寫入為關閉。"
+policy:
+  allow_implicit_invocation: true
+

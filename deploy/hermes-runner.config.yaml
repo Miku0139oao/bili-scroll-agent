@@ -1,0 +1,10 @@
+mcp_servers:
+  bili-scroll:
+    url: "http://127.0.0.1:8788/api/mcp"
+    headers:
+      Authorization: "Bearer ${BILI_SCROLL_TOKEN}"
+    trust: full
+    lazy: false
+    connect_timeout: 20
+    timeout: 300
+

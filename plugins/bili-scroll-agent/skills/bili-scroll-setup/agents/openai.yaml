@@ -1,0 +1,7 @@
+interface:
+  display_name: "刷B站設定"
+  short_description: "連接 Bili Scroll Agent 與 cc-switch"
+  default_prompt: "使用 $bili-scroll-setup 幫我連接 Codex 或 Hermes。"
+policy:
+  allow_implicit_invocation: true
+

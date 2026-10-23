@@ -1,0 +1,19 @@
+{
+  "name": "bili-scroll-agent",
+  "version": "0.1.0",
+  "description": "Daily Bilibili video scout with a shared Agent Skill and remote MCP service.",
+  "skills": "./skills/",
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/bili-scroll-setup/SKILL.md"
+    }
+  },
+  "interface": {
+    "displayName": "刷B站 Agent",
+    "shortDescription": "每天讀完字幕，只留下值得看的 B 站影片",
+    "developerName": "Bili Scroll Agent contributors",
+    "category": "Productivity",
+    "brandColor": "#FB7299"
+  }
+}
+
