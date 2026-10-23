@@ -226,6 +226,9 @@ sudo systemctl reload caddy
 
 參見 [`deploy/README.md`](deploy/README.md) 與 [`deploy/Caddyfile`](deploy/Caddyfile)。
 
+要交給另一台 Linux 機器上的部署 Agent，直接使用
+[`docs/deploy-handoff.md`](docs/deploy-handoff.md) 的完整提示詞。
+
 ## 授權
 
 MIT。授權與 upstream attribution 見 [`LICENSE`](LICENSE) 與

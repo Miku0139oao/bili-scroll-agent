@@ -13,6 +13,18 @@ if [[ -z "${DOMAIN}" ]]; then
   exit 1
 fi
 
+for command in go bun caddy openssl rsync curl git systemctl; do
+  if ! command -v "${command}" >/dev/null 2>&1; then
+    echo "Missing required command: ${command}" >&2
+    exit 1
+  fi
+done
+GO_VERSION="$(go env GOVERSION | sed 's/^go//')"
+if [[ "$(printf '%s\n' "1.26.0" "${GO_VERSION}" | sort -V | head -n1)" != "1.26.0" ]]; then
+  echo "Go 1.26.0 or newer is required; found ${GO_VERSION}" >&2
+  exit 1
+fi
+
 id bili-scroll >/dev/null 2>&1 || useradd --system --home /var/lib/bili-scroll --shell /usr/sbin/nologin bili-scroll
 install -d -o bili-scroll -g bili-scroll -m 0700 /var/lib/bili-scroll
 install -d -o root -g bili-scroll -m 0750 /etc/bili-scroll
@@ -24,10 +36,6 @@ rsync -a --delete \
   "${SOURCE_DIR}/" /opt/bili-scroll/
 chown -R root:bili-scroll /opt/bili-scroll
 
-if ! command -v go >/dev/null 2>&1; then
-  echo "Go 1.22+ is required." >&2
-  exit 1
-fi
 if command -v bun >/dev/null 2>&1; then
   (cd /opt/bili-scroll/web && bun install --frozen-lockfile && bun run build)
 else
@@ -48,7 +56,7 @@ chown -R root:bili-scroll /opt/bili-scroll/bin /opt/bili-scroll/plugins/bili-scr
 chown -R bili-scroll:bili-scroll /opt/bili-scroll/web/dist /opt/bili-scroll/internal/webui/dist
 
 if [[ ! -f /etc/bili-scroll/bili-scroll.env ]]; then
-  install -m 0640 -g bili-scroll deploy/env.example /etc/bili-scroll/bili-scroll.env
+  install -m 0600 -o root -g root deploy/env.example /etc/bili-scroll/bili-scroll.env
   KEY="$(openssl rand -base64 32)"
   sed -i "s|REPLACE_WITH_BASE64_32_BYTES|${KEY}|" /etc/bili-scroll/bili-scroll.env
   sed -i "s|https://YOUR-DOMAIN|https://${DOMAIN}|" /etc/bili-scroll/bili-scroll.env
