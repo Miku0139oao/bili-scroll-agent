@@ -8,7 +8,7 @@
 
 ## 目標
 
-- Private repository:
+- Public repository:
   https://github.com/Miku0139oao/bili-scroll-agent
 - Target host: <SSH_HOST>
 - SSH user: <SSH_USER>
@@ -53,7 +53,7 @@
 - 80、443 是否可用
 - 8788 是否已被其他程式佔用
 - Caddy 目前的 service 狀態與設定路徑
-- root 是否已有讀取 private GitHub repo 的 credential 或 deploy key
+- 檢查 GitHub repository 是否仍為 public
 
 若缺少任何依賴，先安裝或回報，不要直接執行 installer。
 

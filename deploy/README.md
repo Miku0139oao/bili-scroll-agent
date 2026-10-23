@@ -108,9 +108,8 @@ curl -fsS https://scroll.example.com/api/health
 
 `update.sh` pulls the current branch, rebuilds WebUI and Go binaries, then
 restarts the service. Database tables are created idempotently at startup.
-The installer preserves `.git` under `/opt/bili-scroll`; for a private
-repository configure a read-only deploy key or credential for the root account
-before running updates.
+The installer preserves `.git` under `/opt/bili-scroll`; the upstream repository
+is public, so updates do not require a deploy key.
 
 Before upgrading:
 
