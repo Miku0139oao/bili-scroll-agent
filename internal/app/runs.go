@@ -88,6 +88,9 @@ func (a *App) createRun(
 	}
 	rawToken, _ := security.NewSecret("bili_run", 32)
 	scopes := []string{"run:begin", "bili:read", "run:finish", "bili:asr", "bili:reply"}
+	if kind == "dm" {
+		scopes = []string{"dm:finish"}
+	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO api_tokens(id_hash,user_id,label,kind,scopes,run_id,created_at,expires_at)
 		VALUES(?,?,?,?,?,?,?,?)`,
@@ -488,12 +491,15 @@ func (a *App) finishRun(
 	if err != nil {
 		return nil, err
 	}
+	deliveryResults := a.processDeliveries(
+		ctx, user, runID, config, a.loadAdminSettings(ctx), picked, summary.DeliveryDrafts,
+	)
 	_, _ = a.Store.DB.Exec(`UPDATE api_tokens SET revoked_at=? WHERE run_id=? AND revoked_at IS NULL`,
 		now, runID)
 	a.events.Publish(user.ID, "run", map[string]any{"run_id": runID, "status": "succeeded"})
 	return map[string]any{
 		"ok": true, "run_id": runID, "picked": len(picked), "remaining_today": remaining - len(picked),
-		"dropped_for_quota": dropped,
+		"dropped_for_quota": dropped, "deliveries": deliveryResults,
 	}, nil
 }
 

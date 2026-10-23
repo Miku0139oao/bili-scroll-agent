@@ -29,7 +29,7 @@ func TestPortablePluginAndLocalMCPManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	var mcpConfig struct {
-		Schema string `json:"$schema"`
+		Schema  string `json:"$schema"`
 		Servers map[string]struct {
 			Type    string `json:"type"`
 			Command string `json:"command"`

@@ -213,15 +213,30 @@ func (a *App) verifyDeliveries(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	credential, err := a.credential(r.Context(), identity.User.ID)
+	checked, err := a.verifyRecentDeliveries(r.Context(), identity.User.ID, 20)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	rows, _ := a.Store.DB.QueryContext(r.Context(), `
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "checked": checked})
+}
+
+func (a *App) verifyRecentDeliveries(
+	ctx context.Context,
+	userID string,
+	maxItems int,
+) ([]map[string]any, error) {
+	credential, err := a.credential(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.Store.DB.QueryContext(ctx, `
 		SELECT id,bvid,COALESCE(remote_id,''),content FROM deliveries
 		WHERE user_id=? AND kind='comment' AND status='sent' AND verified_at IS NULL
-		ORDER BY sent_at LIMIT 20`, identity.User.ID)
+		ORDER BY sent_at LIMIT ?`, userID, maxItems)
+	if err != nil {
+		return nil, err
+	}
 	type target struct {
 		ID, BVID, RemoteID, Content string
 	}
@@ -237,7 +252,7 @@ func (a *App) verifyDeliveries(w http.ResponseWriter, r *http.Request) {
 	}
 	checked := make([]map[string]any, 0)
 	for _, item := range targets {
-		comments, err := a.Bili.Comments(r.Context(), credential, item.BVID, 100)
+		comments, err := a.Bili.Comments(ctx, credential, item.BVID, 100)
 		if err != nil {
 			continue
 		}
@@ -249,14 +264,14 @@ func (a *App) verifyDeliveries(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		_, _ = a.Store.DB.ExecContext(r.Context(), `
+		_, _ = a.Store.DB.ExecContext(ctx, `
 			UPDATE deliveries SET verified_at=?,visible=? WHERE id=?`,
 			store.Now(), boolInt(visible), item.ID)
 		checked = append(checked, map[string]any{
 			"id": item.ID, "bvid": item.BVID, "visible": visible,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "checked": checked})
+	return checked, nil
 }
 
 var (

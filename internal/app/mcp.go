@@ -286,16 +286,20 @@ func (a *App) callTool(
 		if err := requireScope(identity, "bili:read"); err != nil {
 			return nil, err
 		}
-		return map[string]any{"ok": true, "checked": []any{}}, nil
+		checked, err := a.verifyRecentDeliveries(ctx, identity.User.ID, 10)
+		return map[string]any{"ok": true, "checked": checked}, err
 	case "bili_pending_comment_replies":
 		if err := requireScope(identity, "bili:read"); err != nil {
 			return nil, err
 		}
 		config, _ := a.loadConfig(ctx, identity.User.ID)
-		if !config.ReplyToComments {
+		admin := a.loadAdminSettings(ctx)
+		if !config.ReplyToComments || config.DMMode == "only" ||
+			!admin.OutboundEnabled || !a.Settings.BindOutboundEnabled {
 			return map[string]any{"ok": true, "enabled": false, "replies": []any{}}, nil
 		}
-		return map[string]any{"ok": true, "enabled": true, "replies": []any{}}, nil
+		replies, err := a.pendingCommentReplies(ctx, identity.User.ID)
+		return map[string]any{"ok": true, "enabled": true, "replies": replies}, err
 	case "bili_send_comment":
 		return a.mcpSendComment(ctx, identity, args)
 	case "bili_send_dm":
@@ -551,6 +555,9 @@ func (a *App) mcpFinishDM(
 	}
 	_, _ = a.Store.DB.ExecContext(ctx, `
 		UPDATE runs SET status='succeeded',finished_at=? WHERE id=? AND status='running'`,
+		store.Now(), identity.Token.RunID)
+	_, _ = a.Store.DB.ExecContext(ctx, `
+		UPDATE api_tokens SET revoked_at=? WHERE run_id=? AND revoked_at IS NULL`,
 		store.Now(), identity.Token.RunID)
 	_, _ = a.Store.DB.ExecContext(ctx, `
 		INSERT OR IGNORE INTO deliveries(id,user_id,run_id,bvid,kind,content,status,remote_id,
