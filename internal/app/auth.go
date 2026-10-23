@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/hmac"
 	"database/sql"
 	"encoding/base64"
 	"errors"
@@ -309,6 +310,61 @@ func (a *App) stepUp(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "token": raw, "expires_in": 300})
 }
 
+func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
+	identity, ok := a.requireCSRF(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+		TOTP            string `json:"totp"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "invalid request")
+		return
+	}
+	if !security.VerifyPassword(identity.User.PasswordHash, body.CurrentPassword) ||
+		!a.verifyUserTOTP(identity.User, body.TOTP) {
+		writeError(w, http.StatusBadRequest, "invalid current password or TOTP")
+		return
+	}
+	passwordHash, err := security.HashPassword(body.NewPassword)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	now := store.Now()
+	err = a.Store.WithTx(r.Context(), func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`UPDATE users SET password_hash=? WHERE id=?`,
+			passwordHash, identity.User.ID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`
+			UPDATE auth_sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL`,
+			now, identity.User.ID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`
+			UPDATE api_tokens SET revoked_at=?
+			WHERE user_id=? AND kind IN ('stepup','setup') AND revoked_at IS NULL`,
+			now, identity.User.ID)
+		return err
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not change password")
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: "bili_session", Value: "", Path: "/", MaxAge: -1,
+		HttpOnly: true, Secure: a.Settings.SecureCookies, SameSite: http.SameSiteStrictMode,
+	})
+	a.audit(r.Context(), "auth.password_change", identity.User.ID, identity.User.ID, identity.User, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "message": "password changed; sign in again",
+	})
+}
+
 func (a *App) requireWeb(w http.ResponseWriter, r *http.Request) (authContext, bool) {
 	identity, err := a.currentSession(r)
 	if err != nil {
@@ -325,7 +381,8 @@ func (a *App) requireCSRF(w http.ResponseWriter, r *http.Request) (authContext, 
 	}
 	if !strings.EqualFold(r.Method, http.MethodGet) && !strings.EqualFold(r.Method, http.MethodHead) {
 		candidate := r.Header.Get("X-CSRF-Token")
-		if candidate == "" || a.Cipher.TokenHash(candidate) != identity.Session.CSRFHash {
+		if candidate == "" ||
+			!hmac.Equal([]byte(a.Cipher.TokenHash(candidate)), []byte(identity.Session.CSRFHash)) {
 			writeError(w, http.StatusForbidden, "invalid CSRF token")
 			return authContext{}, false
 		}

@@ -41,6 +41,9 @@ type Settings struct {
 	APIRatePerMinute      int
 	BindOutboundEnabled   bool
 	IncomingDMPollSeconds int
+	FFmpegBin             string
+	WhisperBin            string
+	WhisperModelPath      string
 	WebDist               string
 }
 
@@ -79,6 +82,9 @@ func Load() (Settings, error) {
 		APIRatePerMinute:      envInt("BILI_SCROLL_API_RATE_LIMIT_PER_MINUTE", 240),
 		BindOutboundEnabled:   envBool("BILI_SCROLL_BIND_OUTBOUND_ENABLED", true),
 		IncomingDMPollSeconds: envInt("BILI_SCROLL_INCOMING_DM_POLL_SECONDS", 90),
+		FFmpegBin:             env("BILI_SCROLL_FFMPEG_BIN", "ffmpeg"),
+		WhisperBin:            env("BILI_SCROLL_WHISPER_BIN", "whisper-cli"),
+		WhisperModelPath:      strings.TrimSpace(os.Getenv("BILI_SCROLL_WHISPER_MODEL_PATH")),
 		WebDist:               env("BILI_SCROLL_WEB_DIST", "web/dist"),
 	}
 	if s.Port < 1 || s.Port > 65535 {

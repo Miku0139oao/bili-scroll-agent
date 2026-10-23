@@ -162,7 +162,11 @@ func (a *App) callTool(
 			"bvid": stringArg(args, "bvid"), "count": len(comments), "comments": comments,
 		}, err
 	case "bili_transcribe":
-		return nil, errors.New("local ASR is not bundled with the Go server; install a whisper-cli adapter")
+		if err := requireScope(identity, "bili:asr"); err != nil {
+			return nil, err
+		}
+		return a.transcribe(ctx, identity.User.ID, stringArg(args, "bvid"),
+			firstNonEmptyText(stringArg(args, "model"), "small"))
 	case "bili_finish_run":
 		if err := requireScope(identity, "run:finish"); err != nil {
 			return nil, err

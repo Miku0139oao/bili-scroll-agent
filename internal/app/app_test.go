@@ -174,3 +174,34 @@ func TestTenantIsolation(t *testing.T) {
 		t.Fatal("tenant identities leaked across sessions")
 	}
 }
+
+func TestPasswordChangeRequiresTOTPAndRevokesSessions(t *testing.T) {
+	application := testApp(t)
+	cookie, csrf, secret := loginAs(t, application, "password-owner")
+	payload, _ := json.Marshal(map[string]any{
+		"current_password": "a correct horse battery",
+		"new_password":     "a second correct horse",
+		"totp":             security.TOTPCode(secret, time.Now()),
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/auth/change-password", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CSRF-Token", csrf)
+	request.AddCookie(&http.Cookie{Name: "bili_session", Value: cookie})
+	recorder := httptest.NewRecorder()
+	application.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("password change failed: %d %s", recorder.Code, recorder.Body.String())
+	}
+	oldLogin, _ := json.Marshal(map[string]any{
+		"username": "password-owner",
+		"password": "a correct horse battery",
+		"totp":     security.TOTPCode(secret, time.Now()),
+	})
+	oldRequest := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(oldLogin))
+	oldRequest.Header.Set("Content-Type", "application/json")
+	oldRecorder := httptest.NewRecorder()
+	application.Handler().ServeHTTP(oldRecorder, oldRequest)
+	if oldRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("old password still works: %d", oldRecorder.Code)
+	}
+}

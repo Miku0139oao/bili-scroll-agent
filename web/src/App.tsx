@@ -1518,6 +1518,10 @@ function AdvancedPage({
   const [tokenLabel, setTokenLabel] = useState("My Codex / Hermes client");
   const [diagnostics, setDiagnostics] = useState("");
   const [deliveries, setDeliveries] = useState<DeliveryRow[]>([]);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordTOTP, setPasswordTOTP] = useState("");
+  const [passwordBusy, setPasswordBusy] = useState(false);
   const timer = useRef<number | null>(null);
 
   const loadTokens = useCallback(async () => {
@@ -1618,6 +1622,26 @@ function AdvancedPage({
     }
   };
 
+  const changePassword = async () => {
+    setPasswordBusy(true);
+    try {
+      await api("/api/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+          totp: passwordTOTP,
+        }),
+      });
+      setToast({ tone: "ok", text: "密碼已更新，請重新登入" });
+      window.setTimeout(() => window.location.reload(), 900);
+    } catch (reason) {
+      setToast({ tone: "error", text: errorText(reason) });
+    } finally {
+      setPasswordBusy(false);
+    }
+  };
+
   return (
     <div className="stack large">
       <div className="split-grid">
@@ -1663,6 +1687,53 @@ function AdvancedPage({
           {diagnostics ? <pre className="markdown-view">{diagnostics}</pre> : null}
         </Panel>
       </div>
+
+      <Panel title="變更密碼" description="需要目前密碼與 TOTP。成功後會撤銷所有 Web session。">
+        <div className="form-grid three">
+          <Field label="目前密碼">
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+            />
+          </Field>
+          <Field label="新密碼（至少 12 字元）">
+            <input
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+            />
+          </Field>
+          <Field label="目前 TOTP">
+            <input
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={passwordTOTP}
+              onChange={(event) =>
+                setPasswordTOTP(event.target.value.replace(/\D/g, "").slice(0, 6))
+              }
+            />
+          </Field>
+        </div>
+        <div className="button-row">
+          <button
+            className="button"
+            disabled={
+              passwordBusy ||
+              !currentPassword ||
+              newPassword.length < 12 ||
+              passwordTOTP.length !== 6
+            }
+            onClick={() => void changePassword()}
+          >
+            {passwordBusy ? "更新中…" : "更新密碼"}
+          </button>
+        </div>
+      </Panel>
 
       <Panel
         title={tr(language, "tokens")}

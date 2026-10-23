@@ -393,6 +393,40 @@ func (c *Client) Subtitle(ctx context.Context, credential Credential, bvid strin
 	}, nil
 }
 
+func (c *Client) AudioURL(ctx context.Context, credential Credential, bvid string) (string, error) {
+	info, err := c.VideoInfo(ctx, credential, bvid)
+	if err != nil {
+		return "", err
+	}
+	cid := integer(info["cid"])
+	if cid == 0 {
+		pages := slice(info["pages"])
+		if len(pages) > 0 {
+			cid = integer(object(pages[0])["cid"])
+		}
+	}
+	if cid == 0 {
+		return "", errors.New("video has no cid")
+	}
+	query := url.Values{
+		"bvid": {bvid}, "cid": {strconv.Itoa(cid)}, "fnval": {"16"}, "fourk": {"1"},
+	}
+	payload, err := c.getJSON(ctx,
+		"https://api.bilibili.com/x/player/playurl?"+query.Encode(),
+		credential.Cookie(), "https://www.bilibili.com/video/"+bvid)
+	if err != nil {
+		return "", err
+	}
+	if integer(payload["code"]) != 0 {
+		return "", fmt.Errorf("Bilibili audio lookup failed: %s", text(payload["message"]))
+	}
+	audio := slice(object(object(payload["data"])["dash"])["audio"])
+	if len(audio) == 0 {
+		return "", errors.New("no audio stream available")
+	}
+	return firstText(object(audio[0])["baseUrl"], object(audio[0])["base_url"]), nil
+}
+
 func (c *Client) Comments(
 	ctx context.Context,
 	credential Credential,

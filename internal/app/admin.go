@@ -212,7 +212,7 @@ func (a *App) adminResetTOTP(w http.ResponseWriter, r *http.Request) {
 	}
 	now := store.Now()
 	_, err = a.Store.DB.ExecContext(r.Context(), `
-		UPDATE users SET totp_secret_enc=?,totp_confirmed=0 WHERE id=?`,
+		UPDATE users SET totp_secret_enc=?,totp_confirmed=1 WHERE id=?`,
 		encrypted, user.ID)
 	if err == nil {
 		_, _ = a.Store.DB.ExecContext(r.Context(), `

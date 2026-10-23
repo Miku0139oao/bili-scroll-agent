@@ -110,6 +110,7 @@ func (a *App) routes() {
 	a.Mux.HandleFunc("POST /api/auth/invite/accept", a.inviteAccept)
 	a.Mux.HandleFunc("POST /api/auth/invite/verify", a.inviteVerify)
 	a.Mux.HandleFunc("POST /api/auth/step-up", a.stepUp)
+	a.Mux.HandleFunc("POST /api/auth/change-password", a.changePassword)
 
 	a.Mux.HandleFunc("GET /api/me/status", a.status)
 	a.Mux.HandleFunc("GET /api/me/config", a.getConfig)
@@ -204,6 +205,10 @@ func (a *App) spa(w http.ResponseWriter, r *http.Request) {
 	clean := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
 	if clean == "." {
 		clean = "index.html"
+	}
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
 	}
 	target := "dist/" + filepath.ToSlash(clean)
 	if raw, err := fs.ReadFile(a.WebFS, target); err == nil {

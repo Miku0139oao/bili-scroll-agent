@@ -19,7 +19,7 @@ install -d -o root -g bili-scroll -m 0750 /etc/bili-scroll
 install -d -m 0755 /opt/bili-scroll
 
 rsync -a --delete \
-  --exclude .git --exclude .venv --exclude .data --exclude web/node_modules \
+  --exclude .venv --exclude .data --exclude web/node_modules \
   --exclude bin --exclude internal/webui/dist --exclude plugins/bili-scroll-agent/bin \
   "${SOURCE_DIR}/" /opt/bili-scroll/
 chown -R root:bili-scroll /opt/bili-scroll
@@ -64,6 +64,16 @@ systemctl daemon-reload
 systemctl enable --now bili-scroll
 
 sed "s/YOUR-DOMAIN/${DOMAIN}/g" deploy/Caddyfile > /etc/caddy/Caddyfile.bili-scroll
+if command -v caddy >/dev/null 2>&1; then
+  caddy validate --config /etc/caddy/Caddyfile.bili-scroll --adapter caddyfile
+fi
+for _ in $(seq 1 30); do
+  if curl -fsS http://127.0.0.1:8788/api/health >/dev/null; then
+    break
+  fi
+  sleep 1
+done
+curl -fsS http://127.0.0.1:8788/api/health
 echo "App started. Include /etc/caddy/Caddyfile.bili-scroll in Caddy, validate, then reload Caddy."
 echo "Create the first admin:"
 echo "  cd /opt/bili-scroll && runuser -u bili-scroll -- bin/bili-scroll-server create-admin"

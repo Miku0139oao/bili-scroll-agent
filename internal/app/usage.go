@@ -295,6 +295,13 @@ func (a *App) refreshDeepSeekBalance(ctx context.Context, userID string) (map[st
 	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
 		return nil, fmt.Errorf("invalid DeepSeek base URL")
 	}
+	if parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") {
+		return nil, fmt.Errorf("DeepSeek base URL must not include credentials or a path")
+	}
+	if parsed.Scheme == "http" && parsed.Hostname() != "127.0.0.1" &&
+		parsed.Hostname() != "localhost" && parsed.Hostname() != "::1" {
+		return nil, fmt.Errorf("non-HTTPS DeepSeek base URL is only allowed on loopback")
+	}
 	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/user/balance", nil)
 	request.Header.Set("Authorization", "Bearer "+apiKey)
 	request.Header.Set("Accept", "application/json")
