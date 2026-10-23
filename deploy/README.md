@@ -33,6 +33,17 @@ sudo -u bili-scroll \
 Store the displayed TOTP secret in the authenticator immediately. It is not
 shown again by the WebUI.
 
+To rotate a lost or exposed administrator TOTP secret:
+
+```bash
+sudo -u bili-scroll \
+  env BILI_SCROLL_DATA_DIR=/var/lib/bili-scroll \
+  /opt/bili-scroll/.venv/bin/bili-scroll reset-totp --username <admin-username>
+```
+
+This also revokes the user's existing browser sessions and temporary setup
+tokens.
+
 ## Agent runner setup
 
 The scheduler calls Codex and/or Hermes under the `bili-scroll` service

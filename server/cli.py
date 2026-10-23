@@ -9,10 +9,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import uvicorn
+from sqlalchemy import select
+from sqlalchemy import update as sql_update
 
 from .config import get_settings
 from .crypto import SecretCipher
 from .db import Database
+from .models import ApiToken, AuthSession, User, now_utc
+from .security import new_totp_secret, totp_uri
 from .services.auth import create_admin
 from .services.runners import runner_status
 
@@ -63,6 +67,39 @@ async def _doctor(_args: argparse.Namespace) -> None:
     print(f"ffmpeg={'available' if shutil.which('ffmpeg') else 'missing'}")
 
 
+async def _reset_totp(args: argparse.Namespace) -> None:
+    settings = get_settings()
+    db = Database(settings)
+    await db.initialize()
+    cipher = SecretCipher(settings)
+    username = (args.username or input("Username: ")).strip().lower()
+    async with db.session() as session:
+        user = await session.scalar(select(User).where(User.username == username))
+        if not user:
+            raise SystemExit(f"user not found: {username}")
+        secret = new_totp_secret()
+        user.totp_secret_enc = cipher.encrypt_bytes(
+            secret.encode("ascii"), aad=f"totp:{user.username}".encode()
+        )
+        user.totp_confirmed = True
+        await session.execute(
+            sql_update(AuthSession)
+            .where(AuthSession.user_id == user.id)
+            .values(revoked_at=now_utc())
+        )
+        await session.execute(
+            sql_update(ApiToken)
+            .where(ApiToken.user_id == user.id, ApiToken.kind.in_(["stepup", "setup"]))
+            .values(revoked_at=now_utc())
+        )
+        uri = totp_uri(secret, user.username)
+        print(f"Reset TOTP for: {user.username}")
+        print(f"TOTP secret: {secret}")
+        print(f"TOTP URI: {uri}")
+        print("Existing browser sessions have been revoked.")
+    await db.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="bili-scroll")
     sub = parser.add_subparsers(dest="command")
@@ -75,6 +112,8 @@ def main() -> None:
     admin.add_argument("--password")
     sub.add_parser("backup")
     sub.add_parser("doctor")
+    reset = sub.add_parser("reset-totp")
+    reset.add_argument("--username")
     args = parser.parse_args()
     if args.command == "create-admin":
         asyncio.run(_create_admin(args))
@@ -84,6 +123,9 @@ def main() -> None:
         return
     if args.command == "doctor":
         asyncio.run(_doctor(args))
+        return
+    if args.command == "reset-totp":
+        asyncio.run(_reset_totp(args))
         return
     settings = get_settings()
     uvicorn.run(

@@ -61,6 +61,14 @@ uv run bili-scroll serve
 也可以直接執行 `powershell -ExecutionPolicy Bypass -File scripts/start-dev.ps1`
 完成同步、Bun 建置與啟動。
 
+如果管理員遺失驗證器，或 TOTP secret 曾經外洩：
+
+```powershell
+uv run bili-scroll reset-totp --username <你的管理員帳號>
+```
+
+指令會輸出新的 secret 與 `otpauth://` URI，並撤銷該使用者既有的登入工作階段。
+
 開發 WebUI：
 
 ```powershell
