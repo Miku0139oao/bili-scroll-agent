@@ -5,7 +5,7 @@ Target: Ubuntu/Debian, Go, Bun, systemd and Caddy.
 ## Install
 
 ```bash
-BILI_SCROLL_DOMAIN=scroll.example.com sudo -E ./deploy/install.sh .
+sudo env BILI_SCROLL_DOMAIN=scroll.example.com ./deploy/install.sh .
 ```
 
 The installer creates:

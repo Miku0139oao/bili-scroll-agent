@@ -71,7 +71,7 @@
 
 在 repo root 執行：
 
-  BILI_SCROLL_DOMAIN=<DOMAIN> sudo -E ./deploy/install.sh .
+  sudo env BILI_SCROLL_DOMAIN=<DOMAIN> ./deploy/install.sh .
 
 安裝後檢查：
 
