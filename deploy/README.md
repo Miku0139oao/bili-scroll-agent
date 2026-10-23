@@ -1,7 +1,6 @@
-# Linux VPS deployment
+# Linux VPS + Caddy
 
-The installer targets Ubuntu/Debian and uses Bun for the WebUI, `uv` for the
-Python service, systemd for process supervision, and Caddy for TLS.
+Target: Ubuntu/Debian, Go, Bun, systemd and Caddy.
 
 ## Install
 
@@ -9,88 +8,119 @@ Python service, systemd for process supervision, and Caddy for TLS.
 BILI_SCROLL_DOMAIN=scroll.example.com sudo -E ./deploy/install.sh .
 ```
 
-The installer:
+The installer creates:
 
-- creates the `bili-scroll` service account;
-- copies the app to `/opt/bili-scroll`;
-- builds the WebUI with Bun;
-- syncs Python dependencies with `uv`;
-- creates `/etc/bili-scroll/bili-scroll.env`;
-- applies Alembic migrations;
-- enables the systemd unit.
+```text
+/opt/bili-scroll/bin/bili-scroll-server
+/opt/bili-scroll/bin/bili-scroll-usage-sync
+/opt/bili-scroll/plugins/bili-scroll-agent/bin/bili-scroll-mcp
+/var/lib/bili-scroll/bili-scroll.db
+/etc/bili-scroll/bili-scroll.env
+/etc/systemd/system/bili-scroll.service
+/etc/caddy/Caddyfile.bili-scroll
+```
 
-Merge `deploy/Caddyfile` (with the domain substituted) into `/etc/caddy` and
-reload Caddy. Do not expose port 8788 directly.
+It builds the React WebUI with Bun and copies it into
+`internal/webui/dist` before compiling the Go server, so WebUI assets are
+embedded in the server binary.
+
+## Caddy
+
+Include the generated site file from the system Caddyfile:
+
+```caddyfile
+import /etc/caddy/Caddyfile.bili-scroll
+```
+
+Then validate and reload:
+
+```bash
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+The Go service listens only on `127.0.0.1:8788`. Caddy owns TLS, HSTS,
+security headers, the request-body ceiling and HTTPS. The reverse proxy uses
+`flush_interval -1` for SSE and Streamable HTTP MCP.
 
 ## First admin
 
 ```bash
 sudo -u bili-scroll \
-  env BILI_SCROLL_DATA_DIR=/var/lib/bili-scroll \
-  /opt/bili-scroll/.venv/bin/bili-scroll create-admin
+  env HOME=/var/lib/bili-scroll \
+  /opt/bili-scroll/bin/bili-scroll-server create-admin
 ```
 
-Store the displayed TOTP secret in the authenticator immediately. It is not
-shown again by the WebUI.
+Scan the terminal QR code or enter the displayed Base32 secret in a TOTP
+authenticator. Codes use SHA1, six digits and a 30-second period.
 
-To rotate a lost or exposed administrator TOTP secret:
+Rotate TOTP:
 
 ```bash
 sudo -u bili-scroll \
-  env BILI_SCROLL_DATA_DIR=/var/lib/bili-scroll \
-  /opt/bili-scroll/.venv/bin/bili-scroll reset-totp --username <admin-username>
+  env HOME=/var/lib/bili-scroll \
+  /opt/bili-scroll/bin/bili-scroll-server reset-totp --username USERNAME
 ```
 
-This also revokes the user's existing browser sessions and temporary setup
-tokens.
+## Runner homes
 
-## Agent runner setup
+Set these only when auto-detection is not sufficient:
 
-The scheduler calls Codex and/or Hermes under the `bili-scroll` service
-account. Their credentials are independent from desktop cc-switch.
+```dotenv
+BILI_SCROLL_CODEX_HOME=/var/lib/bili-scroll/agents/codex
+BILI_SCROLL_HERMES_HOME=/var/lib/bili-scroll/agents/hermes
+```
 
 Codex:
 
 ```bash
-install -d -o bili-scroll -g bili-scroll -m 0700 \
-  /var/lib/bili-scroll/agents/codex
-install -o bili-scroll -g bili-scroll -m 0600 \
-  deploy/codex-runner.config.toml \
-  /var/lib/bili-scroll/agents/codex/config.toml
-
 sudo -u bili-scroll \
-  env CODEX_HOME=/var/lib/bili-scroll/agents/codex codex login
+  env CODEX_HOME=/var/lib/bili-scroll/agents/codex \
+  codex login
 ```
 
 Hermes:
 
 ```bash
-install -d -o bili-scroll -g bili-scroll -m 0700 \
-  /var/lib/bili-scroll/agents/hermes
-install -o bili-scroll -g bili-scroll -m 0600 \
-  deploy/hermes-runner.config.yaml \
-  /var/lib/bili-scroll/agents/hermes/config.yaml
-
 sudo -u bili-scroll \
-  env HERMES_HOME=/var/lib/bili-scroll/agents/hermes hermes setup
+  env HERMES_HOME=/var/lib/bili-scroll/agents/hermes \
+  hermes setup
 ```
-
-Both templates point at the loopback MCP endpoint and read the per-run Bearer
-token from `BILI_SCROLL_TOKEN`, which the service injects into the child
-process. The token is expired after the run and never appears in the prompt.
-
-## DeepSeek balance
-
-Save the DeepSeek API key in **Admin → DeepSeek Provider**, or add
-`DEEPSEEK_API_KEY` to `/etc/bili-scroll/bili-scroll.env`. The key is used only
-for the official `/user/balance` endpoint.
 
 ## Operations
 
 ```bash
-sudo deploy/backup.sh
+sudo systemctl status bili-scroll
 sudo systemctl restart bili-scroll
+sudo journalctl -u bili-scroll -f
+sudo deploy/backup.sh
 sudo deploy/update.sh
-journalctl -u bili-scroll -f
 ```
 
+Health checks:
+
+```bash
+curl -fsS http://127.0.0.1:8788/api/health
+curl -fsS https://scroll.example.com/api/health
+```
+
+## Upgrade and rollback
+
+`update.sh` pulls the current branch, rebuilds WebUI and Go binaries, then
+restarts the service. Database tables are created idempotently at startup.
+
+Before upgrading:
+
+```bash
+sudo deploy/backup.sh
+```
+
+Rollback the Git revision and run:
+
+```bash
+cd /opt/bili-scroll
+git switch --detach <known-good-sha>
+sudo deploy/update.sh
+```
+
+Keep the pre-upgrade database snapshot until smoke tests pass.

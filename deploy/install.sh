@@ -20,11 +20,12 @@ install -d -m 0755 /opt/bili-scroll
 
 rsync -a --delete \
   --exclude .git --exclude .venv --exclude .data --exclude web/node_modules \
+  --exclude bin --exclude internal/webui/dist --exclude plugins/bili-scroll-agent/bin \
   "${SOURCE_DIR}/" /opt/bili-scroll/
 chown -R root:bili-scroll /opt/bili-scroll
 
-if ! command -v uv >/dev/null 2>&1; then
-  echo "uv is required. Install it from https://docs.astral.sh/uv/ first." >&2
+if ! command -v go >/dev/null 2>&1; then
+  echo "Go 1.22+ is required." >&2
   exit 1
 fi
 if command -v bun >/dev/null 2>&1; then
@@ -33,13 +34,22 @@ else
   echo "Install Bun to build the WebUI." >&2
   exit 1
 fi
-chown -R bili-scroll:bili-scroll /opt/bili-scroll/web/dist
-(cd /opt/bili-scroll && uv sync --frozen --no-dev)
-chown -R root:bili-scroll /opt/bili-scroll/.venv
+install -d -m 0755 /opt/bili-scroll/internal/webui/dist /opt/bili-scroll/bin \
+  /opt/bili-scroll/plugins/bili-scroll-agent/bin
+cp -a /opt/bili-scroll/web/dist/. /opt/bili-scroll/internal/webui/dist/
+(cd /opt/bili-scroll && \
+  CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+    -o bin/bili-scroll-server ./cmd/bili-scroll-server && \
+  CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+    -o bin/bili-scroll-usage-sync ./cmd/bili-scroll-usage-sync && \
+  CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+    -o plugins/bili-scroll-agent/bin/bili-scroll-mcp ./cmd/bili-scroll-mcp)
+chown -R root:bili-scroll /opt/bili-scroll/bin /opt/bili-scroll/plugins/bili-scroll-agent/bin
+chown -R bili-scroll:bili-scroll /opt/bili-scroll/web/dist /opt/bili-scroll/internal/webui/dist
 
 if [[ ! -f /etc/bili-scroll/bili-scroll.env ]]; then
   install -m 0640 -g bili-scroll deploy/env.example /etc/bili-scroll/bili-scroll.env
-  KEY="$(python3 -c 'import base64,os; print(base64.b64encode(os.urandom(32)).decode())')"
+  KEY="$(openssl rand -base64 32)"
   sed -i "s|REPLACE_WITH_BASE64_32_BYTES|${KEY}|" /etc/bili-scroll/bili-scroll.env
   sed -i "s|https://YOUR-DOMAIN|https://${DOMAIN}|" /etc/bili-scroll/bili-scroll.env
 fi
@@ -48,16 +58,13 @@ set -a
 # shellcheck disable=SC1091
 source /etc/bili-scroll/bili-scroll.env
 set +a
-(cd /opt/bili-scroll && runuser -u bili-scroll -- .venv/bin/alembic upgrade head)
 
 install -m 0644 deploy/bili-scroll.service /etc/systemd/system/bili-scroll.service
 systemctl daemon-reload
 systemctl enable --now bili-scroll
 
-cat > /etc/caddy/Caddyfile.bili-scroll <<EOF
-$(sed "s/YOUR-DOMAIN/${DOMAIN}/g" deploy/Caddyfile)
-EOF
-echo "App started. Merge /etc/caddy/Caddyfile.bili-scroll into Caddy, then reload Caddy."
+sed "s/YOUR-DOMAIN/${DOMAIN}/g" deploy/Caddyfile > /etc/caddy/Caddyfile.bili-scroll
+echo "App started. Include /etc/caddy/Caddyfile.bili-scroll in Caddy, validate, then reload Caddy."
 echo "Create the first admin:"
-echo "  cd /opt/bili-scroll && runuser -u bili-scroll -- .venv/bin/bili-scroll create-admin"
+echo "  cd /opt/bili-scroll && runuser -u bili-scroll -- bin/bili-scroll-server create-admin"
 

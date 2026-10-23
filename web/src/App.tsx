@@ -11,16 +11,24 @@ import {
   ArrowRight,
   BadgeCheck,
   BarChart3,
+  Check,
+  Copy,
+  Eye,
+  EyeOff,
   FileText,
   Gauge,
   Inbox,
+  KeyRound,
   Layers3,
   LogOut,
   MessageCircleMore,
   Play,
+  QrCode,
   Radio,
+  ScanLine,
   Settings2,
   ShieldCheck,
+  Smartphone,
   SlidersHorizontal,
   Sun,
 } from "lucide-react";
@@ -190,6 +198,7 @@ function LoginPage({
 }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [totp, setTotp] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -214,7 +223,14 @@ function LoginPage({
   return (
     <div className="auth-layout">
       <section className="auth-story">
-        <div className="eyebrow">CODEX / HERMES / CC-SWITCH</div>
+        <div className="auth-brand-lockup">
+          <BrandGlyph large />
+          <div>
+            <strong>{tr(language, "app")}</strong>
+            <span>DAILY VIDEO INTELLIGENCE</span>
+          </div>
+        </div>
+        <div className="eyebrow auth-eyebrow">CODEX / HERMES / CC-SWITCH</div>
         <h1>{tr(language, "app")}</h1>
         <p>{tr(language, "tagline")}</p>
         <div className="signal-list">
@@ -255,8 +271,9 @@ function LoginPage({
           <LanguageSwitch language={language} setLanguage={setLanguage} />
         </div>
         <div className="auth-heading">
-          <span className="eyebrow">WELCOME BACK</span>
+          <span className="eyebrow"><ShieldCheck size={12} /> SECURE ACCESS</span>
           <h2>{tr(language, "login")}</h2>
+          <p>使用帳號密碼與驗證器的一次性代碼登入。</p>
         </div>
         <form onSubmit={submit} className="stack">
           <Field label={tr(language, "username")}>
@@ -268,23 +285,40 @@ function LoginPage({
             />
           </Field>
           <Field label={tr(language, "password")}>
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-            />
+            <span className="input-with-action">
+              <input
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="input-action"
+                aria-label={showPassword ? "隱藏密碼" : "顯示密碼"}
+                onClick={() => setShowPassword((current) => !current)}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </span>
           </Field>
-          <Field label={tr(language, "totp")}>
+          <Field label="驗證器代碼">
             <input
               inputMode="numeric"
+              pattern="[0-9]{6}"
+              maxLength={6}
               autoComplete="one-time-code"
+              placeholder="000000"
+              className="totp-input"
               value={totp}
-              onChange={(event) => setTotp(event.target.value)}
+              onChange={(event) =>
+                setTotp(event.target.value.replace(/\D/g, "").slice(0, 6))
+              }
               required
             />
           </Field>
+          <TotpGuide language={language} compact />
           {error ? <InlineState tone="error">{error}</InlineState> : null}
           <button className="button primary full" disabled={busy}>
             {busy ? "驗證中" : tr(language, "login")}
@@ -311,6 +345,7 @@ function InvitePage({
   const [setupToken, setSetupToken] = useState("");
   const [secret, setSecret] = useState("");
   const [uri, setUri] = useState("");
+  const [qr, setQr] = useState("");
   const [totp, setTotp] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -332,6 +367,7 @@ function InvitePage({
         setup_token: string;
         secret: string;
         otpauth_uri: string;
+        otpauth_qr: string;
       }>("/api/auth/invite/accept", {
         method: "POST",
         body: JSON.stringify({ token, password }),
@@ -339,6 +375,7 @@ function InvitePage({
       setSetupToken(result.setup_token);
       setSecret(result.secret);
       setUri(result.otpauth_uri);
+      setQr(result.otpauth_qr);
     } catch (reason) {
       setError(errorText(reason));
     } finally {
@@ -398,19 +435,31 @@ function InvitePage({
         ) : (
           <form className="stack" onSubmit={verify}>
             <InlineState tone="warn">
-              把下方密鑰加入驗證器，再輸入目前六位數。這個密鑰只顯示一次。
+              驗證器設定資料只顯示一次。先掃 QR 或手動輸入密鑰，再填寫目前的六位數。
             </InlineState>
-            <code className="secret-box">{secret}</code>
+            <TotpQrCard
+              username={info?.username || ""}
+              secret={secret}
+              uri={uri}
+              qr={qr}
+            />
+            <TotpGuide language={language} />
             <details>
-              <summary>TOTP URI</summary>
+              <summary>無法掃碼？展開 TOTP URI</summary>
               <code className="secret-box wrap">{uri}</code>
             </details>
-            <Field label={tr(language, "totp")}>
+            <Field label="驗證器目前的 6 位數">
               <input
                 inputMode="numeric"
+                pattern="[0-9]{6}"
+                maxLength={6}
                 autoComplete="one-time-code"
+                placeholder="000000"
+                className="totp-input"
                 value={totp}
-                onChange={(event) => setTotp(event.target.value)}
+                onChange={(event) =>
+                  setTotp(event.target.value.replace(/\D/g, "").slice(0, 6))
+                }
                 required
               />
             </Field>
@@ -672,6 +721,7 @@ function DailyPage({
   }, [loadWatched]);
 
   const runNow = async () => {
+    if (status.active_run) return;
     setBusy("run");
     try {
       await api("/api/me/runs", { method: "POST" });
@@ -679,6 +729,7 @@ function DailyPage({
       await reload();
     } catch (reason) {
       setToast({ tone: "error", text: errorText(reason) });
+      await reload();
     } finally {
       setBusy("");
     }
@@ -795,8 +846,13 @@ function DailyPage({
             >
               {busy ? tr(language, "saving") : tr(language, "save")}
             </button>
-            <button className="button primary" onClick={() => void runNow()} disabled={Boolean(busy)}>
-              {tr(language, "runNow")}
+            <button
+              className="button primary"
+              onClick={() => void runNow()}
+              disabled={Boolean(busy) || Boolean(status.active_run)}
+              title={status.active_run ? "目前已有執行中的 run，請先等待或取消" : undefined}
+            >
+              {status.active_run ? "執行中…" : tr(language, "runNow")}
             </button>
             {status.active_run ? (
               <button className="button danger" onClick={() => void cancelRun()} disabled={Boolean(busy)}>
@@ -1406,6 +1462,10 @@ function UsagePage({
             <span className="eyebrow">ACTIVE RUNNER</span>
             <strong>{status.config.runner.toUpperCase()}</strong>
             <code>{status.runners[status.config.runner]?.command || "not configured"}</code>
+            <div className="route-model">
+              <span>{status.runner_route.provider || "cc-switch / runtime default"}</span>
+              <span>{status.runner_route.model || "model follows local config"}</span>
+            </div>
             <span className={`badge ${status.runners[status.config.runner]?.available ? "good" : "warn"}`}>
               {status.runners[status.config.runner]?.available ? "available" : "missing"}
             </span>
@@ -1415,7 +1475,7 @@ function UsagePage({
           <pre className="markdown-view command-view">{`set BILI_SCROLL_TOKEN=你的裝置權杖
 set BILI_SCROLL_SERVER=${window.location.origin}
 
-py -3 scripts\\local_usage_bridge.py
+bin\\bili-scroll-usage-sync.exe --watch
 `}</pre>
         </Panel>
       </div>
@@ -1685,7 +1745,12 @@ function AdminPage({
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState("member");
   const [inviteUrl, setInviteUrl] = useState("");
-  const [resetInfo, setResetInfo] = useState("");
+  const [resetInfo, setResetInfo] = useState<{
+    username: string;
+    secret: string;
+    otpauth_uri: string;
+    otpauth_qr: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -1775,11 +1840,16 @@ function AdminPage({
 
   const resetTotp = async (userId: string) => {
     try {
-      const result = await api<{ secret: string; otpauth_uri: string }>(
+      const result = await api<{
+        username: string;
+        secret: string;
+        otpauth_uri: string;
+        otpauth_qr: string;
+      }>(
         `/api/admin/users/${userId}/reset-totp`,
         { method: "POST" },
       );
-      setResetInfo(`${result.secret}\n${result.otpauth_uri}`);
+      setResetInfo(result);
       await load();
     } catch (reason) {
       setToast({ tone: "error", text: errorText(reason) });
@@ -1901,14 +1971,13 @@ function AdminPage({
         </Panel>
       </div>
       {resetInfo ? (
-        <Panel title="新的 TOTP 設定" description="只顯示這次；請用安全管道交給使用者。">
-          <pre className="markdown-view">{resetInfo}</pre>
-          <button
-            className="button"
-            onClick={() => void navigator.clipboard.writeText(resetInfo)}
-          >
-            複製
-          </button>
+        <Panel title="新的 TOTP 設定" description="只顯示這次；讓使用者當面掃碼，或透過安全管道交付。">
+          <TotpQrCard
+            username={resetInfo.username}
+            secret={resetInfo.secret}
+            uri={resetInfo.otpauth_uri}
+            qr={resetInfo.otpauth_qr}
+          />
         </Panel>
       ) : null}
       <Panel title="邀請紀錄" description="未使用的邀請在到期前仍可接受。">
@@ -1982,6 +2051,121 @@ function AdminPage({
         </div>
       </Panel>
     </div>
+  );
+}
+
+function TotpGuide({
+  language,
+  compact = false,
+}: {
+  language: UiLanguage;
+  compact?: boolean;
+}) {
+  const copy = {
+    "zh-TW": {
+      title: "第一次使用驗證器？",
+      intro: "支援 Google Authenticator、Microsoft Authenticator、1Password 或任何 TOTP App。",
+      steps: [
+        "在驗證器中選「新增帳號」→「掃描 QR Code」。",
+        "掃碼失敗時選「手動輸入設定金鑰」，貼上畫面上的密鑰。",
+        "輸入 App 顯示的 6 位數；每 30 秒更新一次。",
+      ],
+      clock: "如果代碼一直被拒絕，先開啟手機的自動時間校正。",
+    },
+    "zh-CN": {
+      title: "第一次使用验证器？",
+      intro: "支持 Google Authenticator、Microsoft Authenticator、1Password 或任何 TOTP App。",
+      steps: [
+        "在验证器中选“添加账号”→“扫描 QR Code”。",
+        "扫码失败时选“手动输入设置密钥”，粘贴页面上的密钥。",
+        "输入 App 显示的 6 位数字；每 30 秒更新一次。",
+      ],
+      clock: "如果代码一直被拒绝，请先开启手机的自动时间校准。",
+    },
+    en: {
+      title: "New to authenticator apps?",
+      intro: "Works with Google Authenticator, Microsoft Authenticator, 1Password, or any TOTP app.",
+      steps: [
+        "Choose Add account → Scan QR code in your authenticator.",
+        "If scanning fails, choose Enter setup key and paste the secret shown above.",
+        "Enter the current 6-digit code. It rotates every 30 seconds.",
+      ],
+      clock: "If codes are rejected, enable automatic clock synchronization on your phone.",
+    },
+  }[language];
+
+  return (
+    <details className={`totp-guide ${compact ? "compact" : ""}`}>
+      <summary>
+        <Smartphone size={15} />
+        <span>{copy.title}</span>
+      </summary>
+      <div className="totp-guide-body">
+        <p>{copy.intro}</p>
+        <ol>
+          {copy.steps.map((step) => <li key={step}>{step}</li>)}
+        </ol>
+        <small>{copy.clock}</small>
+      </div>
+    </details>
+  );
+}
+
+function TotpQrCard({
+  username,
+  secret,
+  uri,
+  qr,
+}: {
+  username: string;
+  secret: string;
+  uri: string;
+  qr: string;
+}) {
+  return (
+    <div className="totp-onboarding">
+      <div className="totp-qr-panel">
+        {qr ? (
+          <img src={qr} alt={`${username || "Bili Scroll Agent"} 的 TOTP QR Code`} />
+        ) : (
+          <span className="totp-qr-placeholder"><QrCode size={42} /></span>
+        )}
+        <div>
+          <strong><ScanLine size={14} /> 掃描加入驗證器</strong>
+          <span>{username ? `Bili Scroll Agent · ${username}` : "Bili Scroll Agent"}</span>
+        </div>
+      </div>
+      <div className="totp-secret-panel">
+        <div className="secret-label">
+          <span><KeyRound size={14} /> 無法掃碼時，手動輸入密鑰</span>
+          <CopyButton value={secret} label="複製密鑰" />
+        </div>
+        <code>{secret}</code>
+        <div className="totp-secret-actions">
+          <span>類型：TOTP · 6 位數 · 30 秒</span>
+          <CopyButton value={uri} label="複製設定連結" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <button type="button" className="copy-button" onClick={() => void copy()}>
+      {copied ? <Check size={13} /> : <Copy size={13} />}
+      {copied ? "已複製" : label}
+    </button>
   );
 }
 

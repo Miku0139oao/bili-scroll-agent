@@ -6,11 +6,17 @@ https://YOUR-DOMAIN {
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
         Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
         -Server
+    }
+
+    request_body {
+        max_size 4MB
     }
 
     reverse_proxy 127.0.0.1:8788 {
         flush_interval -1
+        header_up X-Real-IP {remote_host}
     }
 }
 

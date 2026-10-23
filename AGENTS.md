@@ -5,15 +5,16 @@ for Codex, Hermes Agent, and cc-switch.
 
 ## Toolchain
 
-- Python packages: `uv`
+- Backend: Go (`go test ./...`, `go vet ./...`)
 - WebUI packages: Bun (`bun install`, `bun run build`); do not add npm lockfiles
-- Database: SQLite via SQLAlchemy async
+- Database: SQLite via `database/sql` and `modernc.org/sqlite`
+- Local plugin MCP server: Go stdio binary under `plugins/bili-scroll-agent/bin`
 
 ## Verification
 
 ```bash
-uv run pytest -q
-uv run ruff check server tests scripts
+go test ./...
+go vet ./...
 cd web && bun test && bun run build && bun audit
 ```
 

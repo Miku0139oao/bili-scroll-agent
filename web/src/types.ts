@@ -43,6 +43,7 @@ export interface PublicUser {
 export interface RunnerInfo {
   available: boolean;
   command: string;
+  home?: string;
 }
 
 export interface RunInfo {
@@ -65,6 +66,12 @@ export interface StatusPayload {
   picked_today: number;
   remaining_today: number;
   runners: Record<Runner, RunnerInfo>;
+  runner_route: {
+    runner: Runner;
+    provider: string;
+    model: string;
+    source: "admin" | "runtime-default";
+  };
   active_run?: RunInfo | null;
   latest_run?: RunInfo | null;
   admin_settings: { outbound_enabled: boolean };

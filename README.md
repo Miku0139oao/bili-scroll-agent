@@ -1,168 +1,232 @@
 # Bili Scroll Agent
 
-跨 Codex、Hermes Agent 與 cc-switch 的多使用者 B 站每日選題服務。
+Go 實作的 B 站每日選題服務，同時提供：
 
-它保留 `dsh-bili-scroll` 的核心工作流，但不再依賴 DSH host：
+- `bili-scroll-server`：VPS／本機常駐服務、SQLite、排程器、WebUI 與 Streamable HTTP MCP。
+- `bili-scroll-mcp`：Codex／Hermes 真正的本地 stdio MCP plugin，不需要 Python 常駐服務。
+- 共用 Agent Skill 與 Codex plugin manifest。
+- cc-switch 用量同步器（Go）。
+- Caddy + systemd Linux 部署包。
 
-- 用每位使用者自己的關鍵字搜尋近期 B 站影片。
-- 必須讀字幕原文後才判斷內容是否值得看。
-- 產生日報、判重紀錄與每月 archive，並執行每日額度。
-- 可選自動收藏、公開評論、私信投遞、回覆與私信監聽。
-- 同一份 Agent Skill + Streamable HTTP MCP 同時支援 Codex 與 Hermes。
-- 支援 cc-switch 同步、provider/model 用量、token 成本與原生 DeepSeek 餘額查詢。
-- 內建多租戶 WebUI、排程、Admin、稽核、邀請與 TOTP。
-
-所有 B 站寫入預設關閉；評論、私信與 DM 監聽必須經 WebUI 密碼 + TOTP
-step-up 才能開啟。
-
-## 介面預覽
-
-![登入頁](docs/login-preview.png)
-
-![日常面板](docs/dashboard-preview.png)
+功能基準來自 `c1overzz/dsh-bili-scroll` v2.0.4，B 站整合基準包含
+`adoresever/bilibili-mcp`。兩者皆為 MIT 授權，詳見 `NOTICE.md`。
 
 ## 架構
 
-| 元件 | 用途 |
-|---|---|
-| `server/` | FastAPI、SQLite、排程器、B 站 client、Agent runner、MCP |
-| `web/` | React/Vite 回應式 WebUI |
-| `plugins/bili-scroll-agent/` | 共用 Agent Skills 與 Codex plugin |
-| `integrations/cc-switch/` | Codex/Hermes 共用 MCP 與 Skill 設定 |
-| `deploy/` | Linux systemd、Caddy、安裝、備份與更新 |
-| `scripts/local_usage_bridge.py` | 唯讀同步本機 cc-switch 歷史用量 |
+```text
+cmd/
+  bili-scroll-server/     # 多使用者 HTTP 服務／WebUI／排程器
+  bili-scroll-mcp/        # 單使用者 stdio MCP plugin
+  bili-scroll-usage-sync/ # 唯讀同步 cc-switch 用量
+internal/
+  app/                    # auth、CSRF、TOTP、API、MCP、scheduler
+  bilibili/               # B 站 QR 登入、搜尋、字幕、留言、收藏與私信
+  config/                 # 環境設定與 master key
+  model/                  # domain models 與固定 RunSummary schema
+  runner/                 # Codex／Hermes subprocess adapter
+  security/               # AES-256-GCM、Argon2id、TOTP
+  store/                  # SQLite schema 與 transaction
+plugins/bili-scroll-agent # Skill + portable plugin + local MCP manifest
+web/                      # React、TypeScript、Vite、Bun
+deploy/                   # systemd、Caddy、安裝、更新、備份
+```
 
-服務預設使用 `127.0.0.1:8788`。這不與 deepseek-balance dashboard 常用的
-`8787` 衝突。
+後端不依賴 Python、uv、FastAPI、SQLAlchemy 或 Alembic。
 
 ## 本機啟動
 
 需求：
 
-- Python 3.12+
-- `uv`
+- Go 1.22+
 - Bun
-- 若需要背景 agent 執行，VPS/主機需分別登入 Codex 或 Hermes
+- Codex 與／或 Hermes Agent
+
+完整建置並啟動 server：
 
 ```powershell
-uv sync --extra dev
-cd web
-bun install
-bun run build
-cd ..
-
-copy .env.example .env
-uv run bili-scroll create-admin
-uv run bili-scroll serve
+cd D:\deepseek-bilbili-codex
+powershell -ExecutionPolicy Bypass -File .\scripts\start-dev.ps1
 ```
 
-開啟 <http://127.0.0.1:8788>。首次登入需要 Admin CLI 建立的 TOTP。
+開啟 <http://127.0.0.1:8788>。
 
-也可以直接執行 `powershell -ExecutionPolicy Bypass -File scripts/start-dev.ps1`
-完成同步、Bun 建置與啟動。
-
-如果管理員遺失驗證器，或 TOTP secret 曾經外洩：
+只建置：
 
 ```powershell
-uv run bili-scroll reset-totp --username <你的管理員帳號>
+powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 ```
 
-指令會輸出新的 secret 與 `otpauth://` URI，並撤銷該使用者既有的登入工作階段。
+產物：
 
-開發 WebUI：
+```text
+bin/bili-scroll-server.exe
+bin/bili-scroll-usage-sync.exe
+plugins/bili-scroll-agent/bin/bili-scroll-mcp.exe
+plugins/bili-scroll-agent/bin/bili-scroll-mcp
+```
+
+手動啟動 server：
 
 ```powershell
-# terminal 1
-uv run bili-scroll serve
-
-# terminal 2
-cd web
-bun run dev
+.\bin\bili-scroll-server.exe serve
 ```
 
-## Codex / Hermes / cc-switch
+## 第一次建立 Admin／TOTP
 
-1. WebUI → 進階 → 建立 Agent 裝置權杖。
-2. 在 cc-switch MCP 頁面貼上
-   [`integrations/cc-switch/mcp-servers.json`](integrations/cc-switch/mcp-servers.json)
-   的內容，替換 domain 與 token，並同時啟用 Codex、Hermes。
-3. 在 cc-switch Skills → 倉庫管理加入此 repo，技能路徑填
-   `plugins/bili-scroll-agent/skills`。
-4. 新對話中執行 `$bili-scroll`（Codex）或 `/bili-scroll`（Hermes）。
+```powershell
+.\bin\bili-scroll-server.exe create-admin `
+  --username miku0139 `
+  --display-name miku0139
+```
 
-詳細說明見
-[`integrations/cc-switch/README.md`](integrations/cc-switch/README.md)。
+終端會顯示 QR Code、Base32 secret 與 `otpauth://` URI。
 
-## 模型、Provider 與成本
+1. 用 Google Authenticator、Microsoft Authenticator、1Password 或其他 TOTP App。
+2. 選「新增帳號」→「掃描 QR Code」。
+3. 無法掃碼時選「手動輸入設定金鑰」，貼上終端 secret。
+4. 登入時輸入帳號、密碼與目前六位數；代碼每 30 秒更新。
+5. TOTP 驗證依賴正確時間，手機需開啟自動時間校正。
 
-VPS 排程使用伺服器自己的 Codex/Hermes 安裝與 provider 憑證，不反向依賴
-桌機 cc-switch 路由。每位 Member 可選 Codex 或 Hermes；Admin 可設定
-provider、model、reasoning 與每日額度。
+重設：
 
-WebUI 的 **Usage & balance** 頁會顯示：
+```powershell
+.\bin\bili-scroll-server.exe reset-totp --username miku0139
+```
 
-- 每次服務 run 的 provider/model、tokens 與可取得的成本。
-- cc-switch 歷史 provider/model 用量與成本。
-- cache hit rate。
-- DeepSeek 原生官方 `/user/balance` 餘額。
+這會撤銷該使用者既有的 Web session。
 
-### DeepSeek 餘額
+## Codex plugin
 
-這是本專案的原生功能，不需要額外 dashboard 才能使用。
+Plugin 位於 [`plugins/bili-scroll-agent`](plugins/bili-scroll-agent)，包含：
 
-Admin 可在 WebUI 保存 DeepSeek API key；也可在 systemd environment file
-設定 `DEEPSEEK_API_KEY`。金鑰只會用於官方
-`GET https://api.deepseek.com/user/balance`，以 AES-GCM 加密保存，
-且永遠不會回傳到瀏覽器或 Agent context。
+- 標準 `SKILL.md`
+- portable `plugin.json`
+- `.codex-plugin/plugin.json` 相容層
+- `mcp.json` stdio server manifest
+- 本地 `bili-scroll-mcp` binary
 
-### 匯入 cc-switch 用量
+它不使用遠端 server，也不要求 WebUI。資料預設寫入 Codex 提供的
+`PLUGIN_DATA`，首次啟動會建立 `local` profile。
+
+本機 marketplace：
+
+```powershell
+codex plugin marketplace add D:\deepseek-bilbili-codex
+codex plugin add bili-scroll-agent@bili-scroll-local
+```
+
+安裝後開新對話使用 `$bili-scroll`。第一次使用時呼叫
+`bili_login_start`，掃描 B 站 QR 後以 `bili_login_poll` 完成登入。
+
+Hermes 使用同一份 `skills/` 與 `mcp.json`，不需要另一套業務 plugin。
+
+## 遠端 server + WebUI
+
+Server 提供多租戶、邀請、密碼 + TOTP、排程、執行紀錄、日報、收藏、
+評論／私信控制、用量與 DeepSeek 餘額。
+
+MCP endpoint：
+
+```text
+https://YOUR-DOMAIN/api/mcp
+```
+
+遠端 MCP 使用個人 Bearer device token；Codex／Hermes 子程序只取得短效
+run token。B 站 cookie、TOTP secret 與 provider key 永遠不會進入模型
+context。
+
+## cc-switch
+
+Codex MCP 片段、Hermes YAML、同一份 Skill 與用量同步說明位於
+[`integrations/cc-switch`](integrations/cc-switch)。
+
+開始同步：
 
 ```powershell
 $env:BILI_SCROLL_SERVER = "http://127.0.0.1:8788"
 $env:BILI_SCROLL_TOKEN = "bili_device_..."
-py -3 scripts\local_usage_bridge.py
+.\bin\bili-scroll-usage-sync.exe --watch
 ```
 
-腳本以 SQLite read-only 模式讀取 `~/.cc-switch/cc-switch.db` 的
-`usage_daily_rollups`。不上傳 provider API key、對話或 request body。
+同步器以唯讀模式查詢 `~/.cc-switch/cc-switch.db`，每 60 秒上傳每日
+provider/model/token/cost 彙總。它不會讀取或上傳 provider API key。
+
+WebUI 的 Usage 頁顯示：
+
+- 每次 run 的 provider/model、tokens、成本與 exit code
+- cc-switch 歷史 provider/model 用量
+- cache hit rate
+- DeepSeek 官方 `/user/balance`
+
+Admin 的 provider/model 留空時，runner 沿用本機 `CODEX_HOME` 或
+`HERMES_HOME` 設定，因此會直接使用 cc-switch 切換後的路由。
+
+## Runner
+
+排程與手動執行只接受固定 executable：Codex 或 Hermes。
+
+Codex：
+
+```text
+codex exec --ephemeral --skip-git-repo-check ... --json -
+```
+
+Hermes：
+
+```text
+hermes --usage-file <file> chat --oneshot --quiet --query-file <file> --source tool
+```
+
+兩者不使用 shell，具 timeout、輸出大小限制與獨立暫存工作目錄。
+服務重啟會清除孤兒 run；關閉服務會終止執行中的子程序。
 
 ## 安全邊界
 
-- Invite-only；Admin/Member 角色；24 小時單次邀請。
-- 密碼 Argon2id，TOTP 必填；HttpOnly/SameSite session 與 CSRF。
-- 每位使用者獨立 B 站 cookie、設定、排程、報告與 token。
-- B 站 cookie、TOTP secret、provider key 使用 AES-GCM。
-- MCP 只接受有效 Bearer token；run token 短效且只限該次 run。
-- 模型永遠看不到 B 站 cookie、provider secret 或 run token。
-- B 站字幕、留言、標題與私訊均視為不可信資料。
+- Invite-only；Admin／Member 角色。
+- Argon2id 密碼、TOTP、HttpOnly/SameSite session、CSRF。
+- AES-256-GCM 加密 B 站 cookie、TOTP secret 與 provider key。
+- API token 只存 HMAC-SHA256 摘要；完整值只顯示一次。
+- 評論、私信與 DM 監聽預設關閉，WebUI 需密碼 + TOTP step-up。
+- B 站標題、簡介、字幕、留言與私訊均視為不可信資料。
+- MCP 唯讀／寫入工具提供 annotations；明確寫入需要 `confirm=true`。
 
 ## 測試
 
 ```powershell
-uv run pytest -q
-uv run ruff check server tests scripts
+powershell -ExecutionPolicy Bypass -File .\scripts\test.ps1
+go test -race ./...
+go vet ./...
 cd web
-bun run build
 bun test
 bun audit
 ```
 
-真實 B 站登入仍需使用 WebUI QR 流程；倉庫測試不會發送任何評論或私信。
+自動測試不產生公開評論或私信。
 
-## Linux VPS
+## Linux + Caddy
 
-參見：
+`deploy/install.sh` 會：
 
-- [`deploy/install.sh`](deploy/install.sh)
-- [`deploy/README.md`](deploy/README.md)
-- [`deploy/bili-scroll.service`](deploy/bili-scroll.service)
-- [`deploy/Caddyfile`](deploy/Caddyfile)
-- [`deploy/env.example`](deploy/env.example)
+- 建立 `bili-scroll` service account
+- 用 Bun 建置 WebUI
+- 用 Go 建置 server、usage sync 與 plugin binary
+- 將 WebUI embed 進 Go server
+- 安裝 systemd unit
+- 產生 Caddy site 片段
 
-安裝腳本使用 Bun。不會自動部署到未知主機。
+Go server 只綁 `127.0.0.1:8788`。Caddy 提供 TLS、HSTS、安全標頭、
+request body limit 與 reverse proxy；`flush_interval -1` 保留 SSE／MCP
+串流。
+
+```bash
+BILI_SCROLL_DOMAIN=scroll.example.com sudo -E ./deploy/install.sh .
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+參見 [`deploy/README.md`](deploy/README.md) 與 [`deploy/Caddyfile`](deploy/Caddyfile)。
 
 ## 授權
 
-MIT。功能基準來自
-[c1overzz/dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll)，
-B 站整合基準包含 `adoresever/bilibili-mcp`。詳見 `NOTICE.md`。
+MIT。授權與 upstream attribution 見 [`LICENSE`](LICENSE) 與
+[`NOTICE.md`](NOTICE.md)。

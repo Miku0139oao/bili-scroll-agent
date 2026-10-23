@@ -1,12 +1,14 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bili-scroll-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Daily Bilibili video scout with a shared Agent Skill and remote MCP service.",
   "author": {
     "name": "Bili Scroll Agent contributors"
   },
   "license": "MIT",
+  "repository": "https://github.com/Miku0139oao/bili-scroll-agent",
+  "homepage": "https://github.com/Miku0139oao/bili-scroll-agent",
   "keywords": [
     "bilibili",
     "codex",

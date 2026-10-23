@@ -179,6 +179,45 @@ select option {
   height: 38px;
 }
 
+.auth-brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 32px;
+}
+
+.auth-brand-lockup .brand-mark {
+  width: 54px;
+  height: 48px;
+  border-radius: 15px;
+}
+
+.auth-brand-lockup .brand-mark svg {
+  width: 31px;
+  height: 31px;
+}
+
+.auth-brand-lockup > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.auth-brand-lockup strong {
+  font-size: 18px;
+  letter-spacing: -0.025em;
+}
+
+.auth-brand-lockup span {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.15em;
+}
+
+.auth-eyebrow {
+  margin-bottom: 8px;
+}
+
 .brand-copy {
   display: flex;
   flex-direction: column;
@@ -548,6 +587,47 @@ main {
 .field > span {
   color: #b6beca;
   font-size: 11px;
+}
+
+.input-with-action {
+  position: relative;
+  display: block;
+}
+
+.input-with-action input {
+  padding-right: 44px;
+}
+
+.input-action {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.input-action:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.totp-input {
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-align: center;
+}
+
+.totp-input::placeholder {
+  color: rgba(255, 255, 255, 0.16);
 }
 
 .field.align-end {
@@ -1378,9 +1458,21 @@ main {
   margin: 29px 0 22px;
 }
 
+.auth-heading .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .auth-heading h2 {
   font-size: 27px;
   letter-spacing: -0.035em;
+}
+
+.auth-heading p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .auth-topline {
@@ -1389,18 +1481,214 @@ main {
   justify-content: space-between;
 }
 
+.auth-card {
+  background:
+    radial-gradient(circle at 100% 0, rgba(251, 114, 153, 0.075), transparent 18rem),
+    rgba(21, 24, 30, 0.93);
+}
+
 .auth-card .fine-print {
   margin-top: 18px;
   text-align: center;
 }
 
 .invite-card {
-  width: min(500px, calc(100% - 32px));
+  width: min(660px, calc(100% - 32px));
 }
 
 .invite-card h1 {
   font-size: 24px;
   margin-bottom: 5px;
+}
+
+.totp-guide {
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.025);
+  overflow: hidden;
+}
+
+.totp-guide summary {
+  min-height: 42px;
+  padding: 9px 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #c8cfda;
+  font-size: 11px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.totp-guide summary::-webkit-details-marker {
+  display: none;
+}
+
+.totp-guide summary::after {
+  content: "+";
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.totp-guide[open] summary::after {
+  content: "−";
+}
+
+.totp-guide summary svg {
+  color: var(--accent);
+}
+
+.totp-guide.compact {
+  background: transparent;
+  border-style: dashed;
+}
+
+.totp-guide-body {
+  border-top: 1px solid var(--border);
+  padding: 11px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.totp-guide-body ol {
+  margin: 8px 0;
+  padding-left: 18px;
+}
+
+.totp-guide-body li + li {
+  margin-top: 4px;
+}
+
+.totp-guide-body small {
+  display: block;
+  color: #d7b47b;
+  font-size: 9px;
+}
+
+.totp-onboarding {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(230px, 1.2fr);
+  gap: 12px;
+}
+
+.totp-qr-panel,
+.totp-secret-panel {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.14);
+  padding: 14px;
+}
+
+.totp-qr-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  text-align: center;
+}
+
+.totp-qr-panel img,
+.totp-qr-placeholder {
+  width: min(180px, 100%);
+  aspect-ratio: 1;
+  padding: 9px;
+  border-radius: 12px;
+  background: #fff;
+  object-fit: contain;
+}
+
+.totp-qr-placeholder {
+  display: grid;
+  place-items: center;
+  color: #6c7481;
+}
+
+.totp-qr-panel > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.totp-qr-panel strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.totp-qr-panel strong svg {
+  color: var(--accent);
+}
+
+.totp-qr-panel span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.totp-secret-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.secret-label,
+.totp-secret-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.secret-label > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #c5ccd7;
+  font-size: 10px;
+}
+
+.secret-label > span svg {
+  color: var(--warn);
+}
+
+.totp-secret-panel > code {
+  padding: 12px;
+  border: 1px solid rgba(240, 183, 92, 0.18);
+  border-radius: 9px;
+  background: #0a0c10;
+  color: #f0cf95;
+  font-size: 11px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.totp-secret-actions > span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.copy-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.copy-button:hover {
+  color: var(--text);
+  border-color: var(--border-bright);
 }
 
 .usage-toolbar {
@@ -1563,6 +1851,23 @@ main {
   font-size: 10px;
 }
 
+.route-model {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  width: 100%;
+  color: #bac3cf;
+  font-size: 9px;
+}
+
+.route-model span:last-child {
+  color: var(--muted);
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+}
+
 .command-view {
   margin-top: 0;
   max-height: 180px;
@@ -1661,6 +1966,10 @@ main {
     padding: 50px 30px 20px;
   }
 
+  .auth-brand-lockup {
+    margin-bottom: 24px;
+  }
+
   .auth-card {
     margin-top: -20px;
   }
@@ -1715,6 +2024,10 @@ main {
   }
 
   .usage-main {
+    grid-template-columns: 1fr;
+  }
+
+  .totp-onboarding {
     grid-template-columns: 1fr;
   }
 

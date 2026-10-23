@@ -9,5 +9,6 @@ if "%BILI_SCROLL_TOKEN%"=="" (
   exit /b 2
 )
 
-py -3 "%~dp0..\..\scripts\local_usage_bridge.py" --server "%BILI_SCROLL_SERVER%"
+cd /d "%~dp0..\.."
+bin\bili-scroll-usage-sync.exe --watch --server "%BILI_SCROLL_SERVER%"
 pause

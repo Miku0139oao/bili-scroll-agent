@@ -1,10 +1,6 @@
 ---
 name: bili-scroll-setup
-description: Connect Codex or Hermes Agent to a self-hosted Bili Scroll service through cc-switch or a direct remote MCP configuration. Use during first-time setup, token rotation, Bilibili QR login, cc-switch synchronization, usage import, or DeepSeek balance setup.
-metadata:
-  hermes:
-    tags: [bilibili, setup, mcp, cc-switch]
-    category: productivity
+description: Set up the local Bili Scroll plugin or connect Codex and Hermes Agent to a self-hosted Bili Scroll server. Use for first-time setup, Bilibili QR login, TOTP recovery, cc-switch routing, usage import, or DeepSeek balance.
 ---
 
 # Bili Scroll Setup
@@ -12,12 +8,28 @@ metadata:
 Do not request or print passwords, TOTP seeds, Bilibili cookies, provider API
 keys, or raw device tokens in chat.
 
-## Codex or Hermes through cc-switch
+## Local plugin
+
+The portable plugin starts `bili-scroll-mcp` over stdio. It creates a local
+`local` profile under `PLUGIN_DATA`; no server, WebUI, account token or admin
+invitation is required.
+
+1. Call `bili_status`.
+2. If Bilibili is not connected, call `bili_login_start`.
+3. Show the QR to the user and wait for them to scan it in the Bilibili app.
+4. Call `bili_login_poll` with the returned key. Stop polling after expiry.
+5. Configure keywords with `bili_config_update`.
+6. Start a small test scan manually. Do not call `bili_request_run` from the
+   local plugin unless the user explicitly wants a nested server-side agent.
+
+The local plugin stores encrypted credentials in `PLUGIN_DATA`. Never ask for
+Bilibili cookies or read the database directly.
+
+## Remote server through cc-switch
 
 1. Open the Bili Scroll WebUI supplied by the administrator.
 2. Sign in and create a named Agent device token under **Advanced**.
-3. In cc-switch, add this MCP server and enable both the Codex and Hermes
-   columns:
+3. In cc-switch, add the remote MCP server and enable Codex and Hermes:
 
 ```json
 {
@@ -57,7 +69,7 @@ profile secret store or `.env`; never in a committed config.
 ## First checks
 
 1. Call `bili_status` and confirm the account and runner state.
-2. Open the WebUI **Advanced** page and scan the Bilibili QR code.
+2. Complete Bilibili QR login with `bili_login_start` / `bili_login_poll`.
 3. Run a single manual scan with a small quota.
 4. Keep comments, private messages and DM watching disabled until the user
    explicitly enables them through WebUI password + TOTP step-up.
@@ -67,11 +79,19 @@ profile secret store or `.env`; never in a committed config.
 To import cc-switch provider/cost history:
 
 1. Set `BILI_SCROLL_TOKEN` and `BILI_SCROLL_SERVER`.
-2. Run `py -3 scripts\local_usage_bridge.py` from this repository.
+2. Run `bin\bili-scroll-usage-sync.exe --watch` from this repository.
 3. Open **Usage & balance** in the Bili Scroll WebUI.
 
 The bridge reads the cc-switch SQLite database in read-only mode and never
 exports provider keys. DeepSeek balance is queried natively by the service from
 the official `/user/balance` endpoint. The API key is configured by an Admin
 or supplied through `DEEPSEEK_API_KEY`; it is never returned to the browser.
+
+## TOTP onboarding
+
+The admin CLI prints a scannable QR code, the Base32 setup secret, and the
+`otpauth://` URI. Invited users receive the same setup material in the WebUI.
+Scan the QR or choose **Add account → Enter setup key** in a TOTP
+authenticator, then submit the current six-digit code. Codes rotate every 30
+seconds, so automatic phone clock synchronization must be enabled.
 

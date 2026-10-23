@@ -9,7 +9,8 @@ User=bili-scroll
 Group=bili-scroll
 WorkingDirectory=/opt/bili-scroll
 EnvironmentFile=/etc/bili-scroll/bili-scroll.env
-ExecStart=/opt/bili-scroll/.venv/bin/bili-scroll serve
+Environment=HOME=/var/lib/bili-scroll
+ExecStart=/opt/bili-scroll/bin/bili-scroll-server serve
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
@@ -22,6 +23,7 @@ ReadWritePaths=/var/lib/bili-scroll
 CapabilityBoundingSet=
 RestrictSUIDSGID=true
 LockPersonality=true
+MemoryDenyWriteExecute=false
 
 [Install]
 WantedBy=multi-user.target

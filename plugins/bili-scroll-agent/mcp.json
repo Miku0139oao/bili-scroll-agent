@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "bili-scroll": {
+      "type": "stdio",
+      "command": "./bin/bili-scroll-mcp",
+      "args": [],
+      "env": {
+        "BILI_SCROLL_LOCAL_USER": "local"
+      },
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

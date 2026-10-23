@@ -10,18 +10,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
+      - name: Install Go
+        uses: actions/setup-go@v5
         with:
-          enable-cache: true
+          go-version-file: go.mod
+          cache: true
 
-      - name: Install Python dependencies
-        run: uv sync --extra dev --frozen
-
-      - name: Test Python
+      - name: Test Go
         run: |
-          uv run pytest -q
-          uv run ruff check server tests scripts
+          go test -race ./...
+          go vet ./...
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -35,6 +33,14 @@ jobs:
           bun test
           bun run build
           bun audit
+
+      - name: Embed WebUI and build Go binaries
+        run: |
+          mkdir -p internal/webui/dist
+          cp -a web/dist/. internal/webui/dist/
+          go build -trimpath ./cmd/bili-scroll-server
+          go build -trimpath ./cmd/bili-scroll-mcp
+          go build -trimpath ./cmd/bili-scroll-usage-sync
 
       - name: Validate configuration fixtures
         run: |

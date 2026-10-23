@@ -8,7 +8,8 @@ This project is a substantial rewrite of:
 The original workflow, duty prompt ideas, and Bilibili integration behavior were
 used as the functional baseline. The DSH host integration, settings runtime,
 headless session management, and browser half were replaced with a standalone,
-multi-tenant service and standards-based Agent Skill / MCP interfaces.
+multi-tenant Go service, a local stdio plugin, and standards-based Agent Skill /
+MCP interfaces.
 
 The MIT texts are reproduced in `LICENSE` and
-`server/vendor/bilibili-mcp/LICENSE`.
+`third_party/bilibili-mcp/LICENSE`.

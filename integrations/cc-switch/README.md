@@ -28,12 +28,17 @@ cc-switch 會寫入 `~/.codex/config.toml` 的 `[mcp_servers]` 與
 ```powershell
 $env:BILI_SCROLL_SERVER = "https://YOUR-DOMAIN"
 $env:BILI_SCROLL_TOKEN = "bili_device_..."
-py -3 scripts\local_usage_bridge.py
+.\bin\bili-scroll-usage-sync.exe --watch
 ```
 
 腳本以唯讀方式查詢 `~/.cc-switch/cc-switch.db` 的
 `usage_daily_rollups`，只上傳每日彙總的 provider/model/token/cost，
-不上傳 provider API key。
+不上傳 provider API key；加上 `--watch` 後每 60 秒更新。
+
+如果 Admin 的 Codex/Hermes Provider 與 Model 留空，服務 runner 會沿用
+`CODEX_HOME`／`HERMES_HOME` 的預設 provider；這正是 cc-switch 管理的
+Codex TOML 與 Hermes YAML。WebUI 會把這種情況標為 `runtime-default`，
+避免把 cc-switch 路由誤寫成服務端硬編碼設定。
 
 DeepSeek 餘額由 Bili Scroll 原生查詢官方 `/user/balance`。Admin 可在
 **Admin → DeepSeek Provider** 保存 API key，或由 systemd 提供
