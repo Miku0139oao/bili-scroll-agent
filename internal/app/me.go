@@ -409,6 +409,7 @@ func (a *App) cover(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"detail": "cover unavailable"})
 		return
 	}
+	source = normalizeCoverURL(source)
 	parsed, err := url.Parse(source)
 	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") ||
 		!strings.HasSuffix(parsed.Hostname(), ".hdslb.com") {
@@ -426,6 +427,13 @@ func (a *App) cover(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", response.Header.Get("Content-Type"))
 	w.Header().Set("Cache-Control", "private,max-age=86400")
 	_, _ = io.Copy(w, response.Body)
+}
+
+func normalizeCoverURL(source string) string {
+	if strings.HasPrefix(source, "//") {
+		return "https:" + source
+	}
+	return source
 }
 
 func (a *App) pickedCount(ctx context.Context, userID, day string) int {

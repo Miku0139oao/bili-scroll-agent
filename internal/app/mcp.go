@@ -586,6 +586,35 @@ func mcpTools() []map[string]any {
 	str := map[string]any{"type": "string"}
 	integer := map[string]any{"type": "integer"}
 	boolean := map[string]any{"type": "boolean"}
+	pickedSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"bvid": str, "title": str, "author": str, "url": str,
+			"tier":      map[string]any{"type": "string", "enum": []string{"值得看", "可以看", "不值当"}},
+			"reason":    str,
+			"one_liner": str,
+		},
+		"required": []string{"bvid", "title", "author", "url", "tier", "reason", "one_liner"},
+	}
+	skippedSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"bvid": str, "title": str, "reason": str,
+		},
+		"required": []string{"bvid", "reason"},
+	}
+	summarySchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"run_id":            str,
+			"picked":            map[string]any{"type": "array", "items": pickedSchema},
+			"skipped":           map[string]any{"type": "array", "items": skippedSchema},
+			"summary":           str,
+			"no_subtitle_count": integer,
+			"delivery_drafts":   map[string]any{"type": "array"},
+		},
+		"required": []string{"run_id", "picked", "skipped", "summary", "no_subtitle_count"},
+	}
 	return []map[string]any{
 		tool("bili_status", "Return account, schedule, quota, runner and recent-run status.", readOnly(false), nil),
 		tool("bili_begin_run", "Start or resume the current run.", write(false, false), nil),
@@ -602,7 +631,7 @@ func mcpTools() []map[string]any {
 		tool("bili_transcribe", "Run optional local speech recognition.", readOnly(true),
 			requiredProps(map[string]any{"bvid": str, "model": str}, "bvid")),
 		tool("bili_finish_run", "Validate and atomically commit the active run.", write(false, false),
-			requiredProps(map[string]any{"summary": map[string]any{"type": "object"}}, "summary")),
+			requiredProps(map[string]any{"summary": summarySchema}, "summary")),
 		tool("bili_report_get", "Return today's Markdown report.", readOnly(false), nil),
 		tool("bili_usage", "Return provider/model usage and balances.", readOnly(false),
 			props(map[string]any{"days": integer})),
