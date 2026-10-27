@@ -1,5 +1,5 @@
 # Bili Scroll Agent
-
+[![M8ven Score](https://m8ven.ai/badge/mcp/miku0139oao-bili-scroll-agent-1da8jt)](https://m8ven.ai/mcp/miku0139oao-bili-scroll-agent-1da8jt?s=readme)
 Go 實作的 B 站每日選題服務，同時提供：
 
 - `bili-scroll-server`：VPS／本機常駐服務、SQLite、排程器、WebUI 與 Streamable HTTP MCP。
