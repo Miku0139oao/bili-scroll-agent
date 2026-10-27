@@ -13,7 +13,8 @@ try {
 
 New-Item -ItemType Directory -Force -Path ".\internal\webui\dist", ".\bin", `
     ".\plugins\bili-scroll-agent\bin" | Out-Null
-Get-ChildItem -LiteralPath ".\internal\webui\dist" -Force | Remove-Item -Recurse -Force
+Get-ChildItem -LiteralPath ".\internal\webui\dist" -Force |
+    Where-Object { $_.Name -ne ".gitkeep" } | Remove-Item -Recurse -Force
 Copy-Item -Path ".\web\dist\*" -Destination ".\internal\webui\dist" -Recurse -Force
 
 go build -trimpath -ldflags="-s -w" -o ".\bin\bili-scroll-server.exe" ".\cmd\bili-scroll-server"
