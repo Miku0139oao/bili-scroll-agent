@@ -40,6 +40,9 @@ $env:BILI_SCROLL_TOKEN = "bili_device_..."
 Codex TOML 與 Hermes YAML。WebUI 會把這種情況標為 `runtime-default`，
 避免把 cc-switch 路由誤寫成服務端硬編碼設定。
 
-DeepSeek 餘額由 Bili Scroll 原生查詢官方 `/user/balance`。Admin 可在
-**Admin → DeepSeek Provider** 保存 API key，或由 systemd 提供
-`DEEPSEEK_API_KEY`；Member 在 **Usage & balance** 頁按重新整理即可。
+餘額由各 provider 的 adapter 原生查詢（DeepSeek `/user/balance`、
+OpenRouter `/credits`，或 Admin 自己寫的 JavaScript adapter）。Admin 在
+**Admin → Providers** 逐個保存 API key，或由 systemd 提供
+`BILI_SCROLL_PROVIDER_<ID>_API_KEY`（DeepSeek 仍接受舊的
+`DEEPSEEK_API_KEY`）；Member 在 **Usage & balance** 頁按重新整理即可。
+詳見 [`../../docs/providers.md`](../../docs/providers.md)。

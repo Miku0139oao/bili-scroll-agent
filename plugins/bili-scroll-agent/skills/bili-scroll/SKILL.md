@@ -1,6 +1,6 @@
 ---
 name: bili-scroll
-description: Run or review a Bilibili daily video digest through the connected bili-scroll MCP service. Use for Bilibili video discovery, subtitle-based selection, reports, quotas, delivery status, model usage, or DeepSeek balance.
+description: Run or review a Bilibili daily video digest through the connected bili-scroll MCP service. Use for Bilibili video discovery, subtitle-based selection, reports, quotas, delivery status, model usage, or provider balances.
 ---
 
 # Bili Scroll

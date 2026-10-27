@@ -1,6 +1,6 @@
 ---
 name: bili-scroll-setup
-description: Set up the local Bili Scroll plugin or connect Codex and Hermes Agent to a self-hosted Bili Scroll server. Use for first-time setup, Bilibili QR login, TOTP recovery, cc-switch routing, usage import, or DeepSeek balance.
+description: Set up the local Bili Scroll plugin or connect Codex and Hermes Agent to a self-hosted Bili Scroll server. Use for first-time setup, Bilibili QR login, TOTP recovery, cc-switch routing, usage import, or provider balances.
 ---
 
 # Bili Scroll Setup
@@ -83,9 +83,10 @@ To import cc-switch provider/cost history:
 3. Open **Usage & balance** in the Bili Scroll WebUI.
 
 The bridge reads the cc-switch SQLite database in read-only mode and never
-exports provider keys. DeepSeek balance is queried natively by the service from
-the official `/user/balance` endpoint. The API key is configured by an Admin
-or supplied through `DEEPSEEK_API_KEY`; it is never returned to the browser.
+exports provider keys. Balances are queried by per-provider adapters (their
+native endpoints, or a JavaScript adapter an Admin writes). Keys are configured
+per provider by an Admin, or supplied through `BILI_SCROLL_PROVIDER_<ID>_API_KEY`;
+they are never returned to the browser.
 
 ## TOTP onboarding
 

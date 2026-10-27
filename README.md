@@ -123,7 +123,7 @@ Hermes 使用同一份 `skills/` 與 `mcp.json`，不需要另一套業務 plugi
 ## 遠端 server + WebUI
 
 Server 提供多租戶、邀請、密碼 + TOTP、排程、執行紀錄、日報、收藏、
-評論／私信控制、用量與 DeepSeek 餘額。
+評論／私信控制、用量與多 provider 餘額。
 
 MCP endpoint：
 
@@ -131,9 +131,9 @@ MCP endpoint：
 https://YOUR-DOMAIN/api/mcp
 ```
 
-遠端 MCP 使用個人 Bearer device token；Codex／Hermes 子程序只取得短效
-run token。B 站 cookie、TOTP secret 與 provider key 永遠不會進入模型
-context。
+遠端 MCP 使用個人 Bearer device token；Codex／Hermes／Claude Code 子程序
+只取得短效 run token。B 站 cookie、TOTP secret 與 provider key 永遠不會
+進入模型 context。
 
 ## cc-switch
 
@@ -156,35 +156,41 @@ WebUI 的 Usage 頁顯示：
 - 每次 run 的 provider/model、tokens、成本與 exit code
 - cc-switch 歷史 provider/model 用量
 - cache hit rate
-- DeepSeek 官方 `/user/balance`
+- 各 provider 的原生餘額（DeepSeek `/user/balance`、OpenRouter
+  `/credits`，或 Admin 自己寫的 JavaScript adapter）
 
-Admin 的 provider/model 留空時，runner 沿用本機 `CODEX_HOME` 或
-`HERMES_HOME` 設定，因此會直接使用 cc-switch 切換後的路由。
+Admin 的 provider/model 留空時，runner 沿用本機 `CODEX_HOME`、
+`HERMES_HOME` 或 `CLAUDE_CONFIG_DIR` 設定，因此會直接使用 cc-switch
+切換後的路由。
+
+Provider 轉接器（built-in 與 JavaScript）見
+[`docs/providers.md`](docs/providers.md)；runner 後端與 MCP 完成契約見
+[`docs/runner-backends.md`](docs/runner-backends.md)。
 
 ## Runner
 
-排程與手動執行只接受固定 executable：Codex 或 Hermes。
-
-Codex：
+排程與手動執行只接受註冊過的 backend：Codex、Hermes Agent 或 Claude Code。
 
 ```text
 codex exec --ephemeral --skip-git-repo-check ... --json -
-```
-
-Hermes：
-
-```text
 hermes --usage-file <file> chat --oneshot --quiet --query-file <file> --source tool
+claude -p <prompt> --output-format stream-json --strict-mcp-config ...
 ```
 
-兩者不使用 shell，具 timeout、輸出大小限制與獨立暫存工作目錄。
-服務重啟會清除孤兒 run；關閉服務會終止執行中的子程序。
+三者都不使用 shell，具 timeout、輸出大小限制與獨立暫存工作目錄。
+backend 只有在能呼叫 HTTP MCP、完成 `bili_finish_run` 時才能結束 run；
+不提供 stdout 解析的替代路徑。全域並行上限套用到所有觸發路徑，超出時
+run 會依序排隊。服務重啟會清除孤兒 run；關閉服務會終止執行中的
+子程序。
 
 ## 安全邊界
 
 - Invite-only；Admin／Member 角色。
 - Argon2id 密碼、TOTP、HttpOnly/SameSite session、CSRF。
 - AES-256-GCM 加密 B 站 cookie、TOTP secret 與 provider key。
+- Admin 自寫的 JavaScript balance adapter 沒有檔案、環境變數、行程或任意
+  socket 存取，egress 僅限該 provider 的 `allow_hosts`；它仍會取得 API key，
+  因此視為受信任程式碼（見 [`docs/providers.md`](docs/providers.md)）。
 - API token 只存 HMAC-SHA256 摘要；完整值只顯示一次。
 - 評論、私信與 DM 監聽預設關閉，WebUI 需密碼 + TOTP step-up。
 - B 站標題、簡介、字幕、留言與私訊均視為不可信資料。
