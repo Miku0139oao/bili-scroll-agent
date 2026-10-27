@@ -34,10 +34,24 @@ import {
 } from "lucide-react";
 import { ApiError, api, restoreCsrf, setCsrf } from "./api";
 import { tr, type MessageKey } from "./i18n";
+import { AdminProviders } from "./pages/AdminProviders";
+import {
+  Choice,
+  EmptyState,
+  Field,
+  InlineState,
+  Metric,
+  Panel,
+  Toggle,
+  compactNumber,
+  errorText,
+  type Toast,
+} from "./ui";
 import type {
   DeliveryRow,
   MemberConfig,
   PublicUser,
+  RunnerInfo,
   StatusPayload,
   TokenRow,
   UiLanguage,
@@ -46,14 +60,6 @@ import type {
 } from "./types";
 
 type Page = "daily" | "preferences" | "interaction" | "usage" | "advanced" | "admin";
-type Toast = { tone: "ok" | "warn" | "error"; text: string } | null;
-
-function errorText(error: unknown): string {
-  if (error instanceof ApiError) return error.detail;
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
 function useUiLanguage(): [UiLanguage, (language: UiLanguage) => void] {
   const [language, setLanguage] = useState<UiLanguage>(() => {
     const saved = localStorage.getItem("bili-scroll-ui-language");
@@ -638,7 +644,7 @@ function Dashboard({
             <UsagePage status={status} language={language} setToast={setToast} />
           ) : null}
           {page === "admin" && user.role === "admin" ? (
-            <AdminPage language={language} setToast={setToast} />
+            <AdminPage language={language} setToast={setToast} runners={status.runners} />
           ) : null}
         </div>
       </main>
@@ -788,9 +794,12 @@ function DailyPage({
               </select>
             </Field>
             <Field label={tr(language, "runner")}>
-              <select value={runner} onChange={(event) => setRunner(event.target.value as "codex" | "hermes")}>
-                <option value="codex">Codex {status.runners.codex.available ? "✓" : "（未安裝）"}</option>
-                <option value="hermes">Hermes {status.runners.hermes.available ? "✓" : "（未安裝）"}</option>
+              <select value={runner} onChange={(event) => setRunner(event.target.value)}>
+                {Object.entries(status.runners).map(([name, info]) => (
+                  <option key={name} value={name} disabled={!info.available}>
+                    {info.label || name} {info.available ? "✓" : `（${info.reason || "未安裝"}）`}
+                  </option>
+                ))}
               </select>
             </Field>
             <Field label={tr(language, "quota")}>
@@ -1292,7 +1301,7 @@ function UsagePage({
     try {
       await api("/api/me/balance/refresh", { method: "POST" });
       await load();
-      setToast({ tone: "ok", text: "DeepSeek 餘額已更新" });
+      setToast({ tone: "ok", text: "Provider 餘額已更新" });
     } catch (reason) {
       setToast({ tone: "error", text: errorText(reason) });
     }
@@ -1302,7 +1311,7 @@ function UsagePage({
       <div className="usage-toolbar">
         <div>
           <span className="eyebrow">PROVIDER · TOKENS · COST · BALANCE</span>
-          <p>服務 run 的實際使用量，加上 cc-switch 匯入歷史；DeepSeek 餘額由服務原生查詢官方 API。</p>
+          <p>服務 run 的實際使用量，加上 cc-switch 匯入歷史；餘額由各 provider 的 adapter 原生查詢。</p>
         </div>
         <div className="filter-row">
           {[7, 30, 90].map((value) => (
@@ -1366,7 +1375,7 @@ function UsagePage({
             />
           )}
         </Panel>
-        <Panel title="DeepSeek 剩餘額度" description="原生查詢官方 GET /user/balance；API key 由服務端加密保存。">
+        <Panel title="Provider 剩餘額度" description="由各 provider adapter 原生查詢；API key 由服務端加密保存。">
           <button className="button subtle full" onClick={() => void refreshBalance()}>
             重新整理餘額
           </button>
@@ -1387,7 +1396,7 @@ function UsagePage({
           ) : (
             <EmptyState
               title="等待餘額快照"
-              body="請由 Admin 在 Provider 設定保存 DeepSeek API key，或設定 DEEPSEEK_API_KEY，然後按「重新整理餘額」。"
+              body="請由 Admin 在 Providers 設定保存 API key，然後按「重新整理餘額」。"
             />
           )}
         </Panel>
@@ -1766,21 +1775,16 @@ function AdvancedPage({
 function AdminPage({
   language,
   setToast,
+  runners,
 }: {
   language: UiLanguage;
   setToast: (toast: Toast) => void;
+  runners: Record<string, RunnerInfo>;
 }) {
   const [users, setUsers] = useState<Record<string, unknown>[]>([]);
   const [invites, setInvites] = useState<Record<string, unknown>[]>([]);
   const [audit, setAudit] = useState<Record<string, unknown>[]>([]);
   const [settings, setSettings] = useState<Record<string, unknown>>({});
-  const [provider, setProvider] = useState<Record<string, unknown>>({
-    base_url: "https://api.deepseek.com",
-    low_balance_threshold: 10,
-    has_api_key: false,
-    enabled: true,
-  });
-  const [apiKey, setApiKey] = useState("");
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState("member");
@@ -1794,18 +1798,16 @@ function AdminPage({
 
   const load = useCallback(async () => {
     try {
-      const [userResult, inviteResult, auditResult, settingResult, providerResult] = await Promise.all([
+      const [userResult, inviteResult, auditResult, settingResult] = await Promise.all([
         api<{ users: Record<string, unknown>[] }>("/api/admin/users"),
         api<{ invites: Record<string, unknown>[] }>("/api/admin/invites"),
         api<{ events: Record<string, unknown>[] }>("/api/admin/audit"),
         api<{ settings: Record<string, unknown> }>("/api/admin/settings"),
-        api<{ deepseek: Record<string, unknown> }>("/api/admin/providers"),
       ]);
       setUsers(userResult.users);
       setInvites(inviteResult.invites);
       setAudit(auditResult.events);
       setSettings(settingResult.settings);
-      setProvider(providerResult.deepseek);
     } catch (reason) {
       setToast({ tone: "error", text: errorText(reason) });
     }
@@ -1839,28 +1841,6 @@ function AdminPage({
       });
       setToast({ tone: "ok", text: "管理設定已儲存" });
       await load();
-    } catch (reason) {
-      setToast({ tone: "error", text: errorText(reason) });
-    }
-  };
-
-  const saveProvider = async () => {
-    try {
-      const result = await api<{ deepseek: Record<string, unknown> }>(
-        "/api/admin/providers/deepseek",
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            base_url: provider.base_url,
-            low_balance_threshold: Number(provider.low_balance_threshold),
-            enabled: Boolean(provider.enabled),
-            api_key: apiKey || null,
-          }),
-        },
-      );
-      setProvider(result.deepseek);
-      setApiKey("");
-      setToast({ tone: "ok", text: "DeepSeek Provider 已更新" });
     } catch (reason) {
       setToast({ tone: "error", text: errorText(reason) });
     }
@@ -1968,11 +1948,6 @@ function AdminPage({
             <div className="form-grid two">
               {[
                 ["default_runner", "預設 Runner"],
-                ["codex_provider", "Codex Provider"],
-                ["codex_model", "Codex Model"],
-                ["codex_reasoning", "Codex Reasoning"],
-                ["hermes_provider", "Hermes Provider"],
-                ["hermes_model", "Hermes Model"],
                 ["global_concurrency", "全域並行"],
                 ["manual_runs_per_day", "每人每日手動"],
                 ["scheduled_runs_per_day", "每人每日排程"],
@@ -1984,18 +1959,45 @@ function AdminPage({
                     onChange={(event) =>
                       setSettings({
                         ...settings,
-                        [key]:
-                          key === "default_runner" ||
-                          key.startsWith("codex_") ||
-                          key.startsWith("hermes_")
-                            ? event.target.value
-                            : Number(event.target.value),
+                        [key]: key === "default_runner" ? event.target.value : Number(event.target.value),
                       })
                     }
                   />
                 </Field>
               ))}
             </div>
+            <p className="muted">
+              Runner 路由（provider / model / reasoning）每人各自套用；留空表示沿用執行環境原本的設定。
+            </p>
+            {Object.keys(runners).map((runnerName) => {
+              const routes = (settings.runner_routes as Record<string, Record<string, string>>) || {};
+              const route = routes[runnerName] || {};
+              const update = (patch: Record<string, string>) =>
+                setSettings({
+                  ...settings,
+                  runner_routes: { ...routes, [runnerName]: { ...route, ...patch } },
+                });
+              return (
+                <div className="route-grid" key={runnerName}>
+                  <strong>{(runners[runnerName] as { label?: string })?.label || runnerName}</strong>
+                  <input
+                    placeholder="provider"
+                    value={route.provider || ""}
+                    onChange={(event) => update({ provider: event.target.value })}
+                  />
+                  <input
+                    placeholder="model"
+                    value={route.model || ""}
+                    onChange={(event) => update({ model: event.target.value })}
+                  />
+                  <input
+                    placeholder="reasoning"
+                    value={route.reasoning || ""}
+                    onChange={(event) => update({ reasoning: event.target.value })}
+                  />
+                </div>
+              );
+            })}
             <button className="button" onClick={() => void saveSettings()}>儲存全域設定</button>
             <button
               className="button subtle"
@@ -2035,50 +2037,7 @@ function AdminPage({
           )) : <p className="muted">尚無邀請。</p>}
         </div>
       </Panel>
-      <Panel
-        title="DeepSeek Provider 與餘額"
-        description="API key 只寫不讀，加密保存；Member 可在 Usage & balance 頁重新查詢。"
-      >
-        <div className="form-grid three">
-          <Field label="Base URL">
-            <input
-              value={String(provider.base_url || "")}
-              onChange={(event) => setProvider({ ...provider, base_url: event.target.value })}
-            />
-          </Field>
-          <Field label={`API Key ${provider.has_api_key ? "（已設定，留空保留）" : "（未設定）"}`}>
-            <input
-              type="password"
-              value={apiKey}
-              placeholder={provider.has_api_key ? "••••••••" : "sk-…"}
-              onChange={(event) => setApiKey(event.target.value)}
-            />
-          </Field>
-          <Field label="低餘額門檻">
-            <input
-              type="number"
-              min={0}
-              value={String(provider.low_balance_threshold ?? 10)}
-              onChange={(event) =>
-                setProvider({ ...provider, low_balance_threshold: Number(event.target.value) })
-              }
-            />
-          </Field>
-        </div>
-        <div className="button-row">
-          <button className="button primary" onClick={() => void saveProvider()}>儲存 Provider</button>
-          <button
-            className="button"
-            onClick={() =>
-              void api("/api/admin/providers/deepseek/check", { method: "POST" })
-                .then(() => setToast({ tone: "ok", text: "DeepSeek 餘額查詢成功" }))
-                .catch((reason) => setToast({ tone: "error", text: errorText(reason) }))
-            }
-          >
-            測試餘額
-          </button>
-        </div>
-      </Panel>
+      <AdminProviders setToast={setToast} />
       <Panel title={tr(language, "audit")}>
         <div className="audit-list">
           {audit.slice(0, 80).map((item) => (
@@ -2209,121 +2168,6 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function Toggle({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label className="toggle-row">
-      <span>{label}</span>
-      <button
-        type="button"
-        className={`toggle ${checked ? "on" : ""}`}
-        aria-pressed={checked}
-        onClick={() => onChange(!checked)}
-      >
-        <i />
-      </button>
-    </label>
-  );
-}
-
-function Choice({
-  active,
-  title,
-  note,
-  onClick,
-}: {
-  active: boolean;
-  title: string;
-  note: string;
-  onClick: () => void;
-}) {
-  return (
-    <button className={`choice ${active ? "active" : ""}`} onClick={onClick}>
-      <span className="radio" />
-      <span>
-        <strong>{title}</strong>
-        <small>{note}</small>
-      </span>
-    </button>
-  );
-}
-
-function Panel({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="panel">
-      <div className="panel-heading">
-        <h2>{title}</h2>
-        {description ? <p>{description}</p> : null}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Metric({
-  label,
-  value,
-  suffix,
-  tone,
-}: {
-  label: string;
-  value: string;
-  suffix?: string;
-  tone?: "good" | "warning" | "danger";
-}) {
-  return (
-    <div className={`metric ${tone || ""}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {suffix ? <small>{suffix}</small> : null}
-    </div>
-  );
-}
-
-function InlineState({
-  tone,
-  children,
-}: {
-  tone: "ok" | "warn" | "error";
-  children: ReactNode;
-}) {
-  return <div className={`inline-state ${tone}`}>{children}</div>;
-}
-
-function EmptyState({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="empty-state">
-      <span><Inbox size={30} /></span>
-      <strong>{title}</strong>
-      <p>{body}</p>
-    </div>
-  );
-}
-
 function BrandGlyph({ large = false }: { large?: boolean }) {
   return (
     <span className={`brand-mark ${large ? "large" : ""}`} aria-hidden="true">
@@ -2342,12 +2186,4 @@ function BrandGlyph({ large = false }: { large?: boolean }) {
       </svg>
     </span>
   );
-}
-
-function compactNumber(value: number): string {
-  if (!Number.isFinite(value)) return "0";
-  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return String(Math.round(value));
 }

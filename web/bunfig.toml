@@ -1,0 +1,4 @@
+[test]
+# Bun's native runner does not read vite.config.ts, so the jsdom environment is
+# installed by this preload instead.
+preload = ["./test-setup.ts"]

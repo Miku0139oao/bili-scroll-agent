@@ -1,6 +1,6 @@
 export type Locale = "zh-TW" | "zh-CN" | "en";
 export type UiLanguage = Locale;
-export type Runner = "codex" | "hermes";
+export type Runner = string;
 export type ReportLevel = "full" | "brief" | "off";
 export type DmMode = "off" | "only" | "both";
 
@@ -44,6 +44,9 @@ export interface RunnerInfo {
   available: boolean;
   command: string;
   home?: string;
+  // reason explains why a registered backend is unavailable.
+  reason?: string;
+  label?: string;
 }
 
 export interface RunInfo {
@@ -65,11 +68,12 @@ export interface StatusPayload {
   bilibili: { logged_in: boolean; uid?: number | null; nickname?: string | null };
   picked_today: number;
   remaining_today: number;
-  runners: Record<Runner, RunnerInfo>;
+  runners: Record<string, RunnerInfo>;
   runner_route: {
     runner: Runner;
     provider: string;
     model: string;
+    reasoning?: string;
     source: "admin" | "runtime-default";
   };
   active_run?: RunInfo | null;
@@ -152,16 +156,70 @@ export interface UsagePayload {
     status: string;
     finished_at?: string;
   }>;
-  balances: Array<{
-    provider: string;
+  balances: ProviderBalance[];
+  provider_catalog?: Array<{
+    provider_id: string;
+    display_name: string;
+    kind: ProviderKind;
+    enabled: boolean;
     currency: string;
-    total: number;
-    granted: number;
-    topped_up: number;
-    available: boolean;
-    low: boolean;
-    source: string;
-    fetched_at: string;
+    supports_balance: boolean;
   }>;
 }
 
+
+export type ProviderKind =
+  | "deepseek"
+  | "openrouter"
+  | "openai-compatible"
+  | "js"
+  | "none"
+  | (string & {});
+
+export interface ProviderBalance {
+  provider: string;
+  currency: string;
+  total: number;
+  granted: number;
+  topped_up: number;
+  available: boolean;
+  low: boolean;
+  source: string;
+  fetched_at: string;
+}
+
+export interface ProviderAccount {
+  provider_id: string;
+  display_name: string;
+  kind: ProviderKind;
+  base_url: string;
+  auth_style?: string;
+  currency: string;
+  has_api_key: boolean;
+  low_balance_threshold: number;
+  enabled: boolean;
+  allow_hosts: string[];
+  settings: Record<string, unknown>;
+  script_version: number;
+  supports_balance: boolean;
+  created_at: string;
+  updated_at: string;
+  last_balance?: ProviderBalance | null;
+  script?: string;
+  script_hash?: string;
+}
+
+export interface ProviderListPayload {
+  providers: ProviderAccount[];
+  /** Legacy pre-0.3 envelope; present when DeepSeek is configured. */
+  deepseek?: ProviderAccount;
+}
+
+export interface ProviderKindInfo {
+  kind: string;
+  label: string;
+  supports_balance: boolean;
+  requires_script: boolean;
+  requires_base_url: boolean;
+  description: string;
+}
