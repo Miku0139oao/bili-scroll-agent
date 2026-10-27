@@ -510,9 +510,7 @@ func (a *App) mcpSendComment(
 	if !reply && config.MentionName != "" && !strings.Contains(textValue, "@"+config.MentionName) {
 		textValue = "@" + config.MentionName + " " + textValue
 	}
-	if len(textValue) > 150 {
-		textValue = textValue[:150]
-	}
+	textValue = truncateText(textValue, 150)
 	mentionName := ""
 	mentionUID := int64(0)
 	if !reply && config.MentionName != "" {
@@ -567,9 +565,7 @@ func (a *App) mcpSendDM(
 		return nil, err
 	}
 	textValue := strings.TrimSpace(stringArg(args, "text"))
-	if len(textValue) > 500 {
-		textValue = textValue[:499] + "…"
-	}
+	textValue = truncateWithEllipsis(textValue, 500)
 	result, err := a.Bili.SendDM(ctx, credential, target, textValue)
 	if err != nil {
 		return nil, err

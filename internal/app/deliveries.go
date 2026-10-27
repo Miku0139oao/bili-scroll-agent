@@ -155,9 +155,7 @@ func (a *App) deliverComment(
 	if config.MentionName != "" && !strings.Contains(textValue, "@"+config.MentionName) {
 		textValue = "@" + config.MentionName + " " + textValue
 	}
-	if len(textValue) > 150 {
-		textValue = textValue[:150]
-	}
+	textValue = truncateText(textValue, 150)
 	deliveryID := model.NewID()
 	insertDelivery := func(status, remoteID, errorMessage string) {
 		_, _ = a.Store.DB.ExecContext(ctx, `
@@ -199,9 +197,7 @@ func (a *App) deliverDM(
 	if textValue == "" {
 		return map[string]any{"kind": "dm", "ok": false, "error": "DM content is empty"}
 	}
-	if len(textValue) > 500 {
-		textValue = textValue[:499] + "…"
-	}
+	textValue = truncateWithEllipsis(textValue, 500)
 	var existing int
 	_ = a.Store.DB.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM deliveries

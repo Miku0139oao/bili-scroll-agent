@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/Miku0139oao/bili-scroll-agent/internal/model"
@@ -19,81 +21,176 @@ func (a *App) Start(parent context.Context) {
 	}
 	a.runCtx, a.runStop = context.WithCancel(parent)
 	ctx := a.runCtx
+	// The semaphore is sized once from the admin setting; changing
+	// global_concurrency takes effect on the next restart.
+	concurrency := a.loadAdminSettings(ctx).GlobalConcurrency
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	a.runSlots = make(chan struct{}, concurrency)
 	a.runMu.Unlock()
+
+	// Three independent loops: a slow DM poll must not delay scheduling, and a
+	// slow verification sweep must not delay either.
+	a.loop(ctx, 30*time.Second, "schedule", func(ctx context.Context) {
+		a.scheduleTick(ctx)
+		a.limiter.Sweep(time.Now(), time.Minute)
+		a.reapStaleRuns(ctx)
+	})
+	a.loop(ctx, time.Duration(a.Settings.IncomingDMPollSeconds)*time.Second, "dm", a.pollDMWatchers)
+	a.loop(ctx, 5*time.Minute, "verify", a.verifyRecentForAll)
+}
+
+// loop runs fn on a ticker with panic isolation and overlap protection.
+func (a *App) loop(ctx context.Context, interval time.Duration, name string, fn func(context.Context)) {
 	a.runWG.Add(1)
 	go func() {
 		defer a.runWG.Done()
-		scheduleTicker := time.NewTicker(30 * time.Second)
-		dmTicker := time.NewTicker(time.Duration(a.Settings.IncomingDMPollSeconds) * time.Second)
-		verifyTicker := time.NewTicker(5 * time.Minute)
-		defer scheduleTicker.Stop()
-		defer dmTicker.Stop()
-		defer verifyTicker.Stop()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		var busy sync.Mutex
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-scheduleTicker.C:
-				a.scheduleTick(ctx)
-			case <-dmTicker.C:
-				a.pollDMWatchers(ctx)
-			case <-verifyTicker.C:
-				a.verifyRecentForAll(ctx)
+			case <-ticker.C:
+				if !busy.TryLock() {
+					continue
+				}
+				a.runTick(name, ctx, fn)
+				busy.Unlock()
 			}
 		}
 	}()
 }
 
+// runTick executes one scheduled task, converting a panic into a log entry so
+// one bad tick cannot kill the loop.
+func (a *App) runTick(name string, ctx context.Context, fn func(context.Context)) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			a.Logger.Error("scheduler tick panicked",
+				"task", name, "panic", recovered, "stack", string(debug.Stack()))
+		}
+	}()
+	fn(ctx)
+}
+
+// reapStaleRuns fails runs whose heartbeat expired. A run that panicked or whose
+// process vanished would otherwise hold the per-user active-run index forever.
+func (a *App) reapStaleRuns(ctx context.Context) {
+	cutoff := time.Now().UTC().Add(-2 * a.Settings.AgentTimeout)
+	result, err := a.Store.DB.ExecContext(ctx, `
+		UPDATE runs SET status='failed',
+			error='agent heartbeat expired; the runner process stopped responding',
+			finished_at=?
+		WHERE status='running' AND COALESCE(heartbeat_at,started_at) < ?`,
+		store.Now(), cutoff.Format(time.RFC3339Nano))
+	if err != nil {
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected > 0 {
+		a.Logger.Warn("failed stale runs", "count", affected)
+	}
+}
+
+// scheduleTick dispatches due schedules without letting one broken user block
+// the rest.
+//
+// Previously the tick returned as soon as createRun failed for the earliest due
+// user, so that user was retried every 30 seconds forever while everyone else
+// starved. Now the loop advances next_run_at before attempting the run, records
+// the failure on the schedule, and keeps draining other due users.
 func (a *App) scheduleTick(ctx context.Context) {
 	admin := a.loadAdminSettings(ctx)
-	var running int
-	if err := a.Store.DB.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM runs WHERE status='running'`).Scan(&running); err != nil {
-		return
+	if admin.GlobalConcurrency > 0 && cap(a.runSlots) != admin.GlobalConcurrency {
+		// Applied on restart only; note it so the mismatch is visible.
+		a.Logger.Debug("global concurrency change pending restart",
+			"active", cap(a.runSlots), "configured", admin.GlobalConcurrency)
 	}
-	if running >= admin.GlobalConcurrency {
-		return
+	// Runs that were parked earlier start first, before new ones are created.
+	a.dispatchPending()
+	for attempts := 0; attempts < 20; attempts++ {
+		if a.freeSlots() <= 0 {
+			return
+		}
+		userID, clock, timezone, nextRun, ok := a.nextDueSchedule(ctx)
+		if !ok {
+			return
+		}
+		nextAt, parsed := store.ParseTime(nextRun)
+		if !parsed {
+			_, _ = a.Store.DB.ExecContext(ctx,
+				`UPDATE schedules SET next_run_at=NULL WHERE user_id=?`, userID)
+			continue
+		}
+		nextDaily := NextDaily(clock, timezone, time.Now().UTC()).Format(time.RFC3339Nano)
+		// Advance before attempting the run so a failure cannot leave the row
+		// in the past and retry on every tick.
+		if nextAt.Before(time.Now().UTC().Add(-2 * time.Hour)) {
+			a.advanceSchedule(ctx, userID, nextDaily, "stale schedule rolled forward")
+			continue
+		}
+		user, err := a.userByID(ctx, userID)
+		if err != nil || user.Disabled {
+			a.advanceSchedule(ctx, userID, nextDaily, "user unavailable")
+			continue
+		}
+		// Move the schedule forward first; the create below either succeeds or
+		// schedules a bounded retry.
+		a.advanceSchedule(ctx, userID, nextDaily, "")
+		run, token, err := a.createRun(ctx, user, "scheduled", nextAt)
+		if err != nil {
+			a.retrySchedule(ctx, userID, nextDaily, err.Error())
+			continue
+		}
+		a.markScheduleSucceeded(ctx, userID)
+		a.scheduleRun(run, token, "")
 	}
-	var userID, clock, timezone, nextRun string
+}
+
+// nextDueSchedule returns the earliest due schedule.
+func (a *App) nextDueSchedule(ctx context.Context) (userID, clock, timezone, nextRun string, ok bool) {
 	err := a.Store.DB.QueryRowContext(ctx, `
 		SELECT user_id,local_time,timezone,next_run_at
 		FROM schedules
 		WHERE enabled=1 AND next_run_at IS NOT NULL AND next_run_at<=?
 		ORDER BY next_run_at LIMIT 1`, store.Now()).
 		Scan(&userID, &clock, &timezone, &nextRun)
-	if errors.Is(err, sql.ErrNoRows) || err != nil {
-		return
-	}
-	nextAt, ok := store.ParseTime(nextRun)
-	if !ok {
-		_, _ = a.Store.DB.ExecContext(ctx,
-			`UPDATE schedules SET next_run_at=NULL WHERE user_id=?`, userID)
-		return
-	}
-	if nextAt.Before(time.Now().UTC().Add(-2 * time.Hour)) {
-		_, _ = a.Store.DB.ExecContext(ctx, `
-			UPDATE schedules SET next_run_at=?,updated_at=? WHERE user_id=?`,
-			NextDaily(clock, timezone, time.Now().UTC()).Format(time.RFC3339Nano),
-			store.Now(), userID)
-		return
-	}
-	user, err := a.userByID(ctx, userID)
-	if err != nil || user.Disabled {
-		_, _ = a.Store.DB.ExecContext(ctx, `
-			UPDATE schedules SET next_run_at=?,updated_at=? WHERE user_id=?`,
-			NextDaily(clock, timezone, time.Now().UTC()).Format(time.RFC3339Nano),
-			store.Now(), userID)
-		return
-	}
-	run, token, err := a.createRun(ctx, user, "scheduled", nextAt)
-	if err != nil {
-		return
+	return userID, clock, timezone, nextRun, err == nil
+}
+
+// advanceSchedule moves the schedule forward without touching retry_count so
+// the following createRun failure can still count its attempts.
+func (a *App) advanceSchedule(ctx context.Context, userID, nextRun, lastError string) {
+	_, _ = a.Store.DB.ExecContext(ctx, `
+		UPDATE schedules SET next_run_at=?,last_run_at=?,updated_at=?,last_error=?
+		WHERE user_id=?`, nextRun, store.Now(), store.Now(), lastError, userID)
+}
+
+// markScheduleSucceeded clears the retry counter after a successful dispatch.
+func (a *App) markScheduleSucceeded(ctx context.Context, userID string) {
+	_, _ = a.Store.DB.ExecContext(ctx,
+		`UPDATE schedules SET retry_count=0,last_error='' WHERE user_id=?`, userID)
+}
+
+// retrySchedule backs off a failed scheduled run a few times before giving up
+// until the next daily slot.
+func (a *App) retrySchedule(ctx context.Context, userID, nextDaily, message string) {
+	var retries int
+	_ = a.Store.DB.QueryRowContext(ctx,
+		`SELECT retry_count FROM schedules WHERE user_id=?`, userID).Scan(&retries)
+	retries++
+	nextRun := nextDaily
+	if retries <= 3 {
+		nextRun = time.Now().UTC().Add(15 * time.Minute).Format(time.RFC3339Nano)
+	} else {
+		retries = 0
 	}
 	_, _ = a.Store.DB.ExecContext(ctx, `
-		UPDATE schedules SET next_run_at=?,last_run_at=?,updated_at=? WHERE user_id=?`,
-		NextDaily(clock, timezone, time.Now().UTC()).Format(time.RFC3339Nano),
-		store.Now(), store.Now(), userID)
-	a.scheduleRun(run, token, "")
+		UPDATE schedules SET next_run_at=?,updated_at=?,last_attempt_at=?,
+			last_error=?,retry_count=?
+		WHERE user_id=?`, nextRun, store.Now(), store.Now(), message, retries, userID)
 }
 
 func (a *App) pollDMWatchers(ctx context.Context) {

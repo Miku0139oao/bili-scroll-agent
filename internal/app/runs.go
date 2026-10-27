@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Miku0139oao/bili-scroll-agent/internal/model"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/runner"
@@ -186,10 +188,44 @@ func (a *App) cancelRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "run_id": runID, "status": status})
 }
 
+// pendingRun is a run waiting for a global concurrency slot.
+//
+// The raw run token only exists at creation time (tokens are stored hashed), so
+// a run that cannot start immediately is held in memory with its token and
+// prompt rather than being requeued through the database.
+type pendingRun struct {
+	run    model.Run
+	token  string
+	prompt string
+}
+
+// scheduleRun starts an agent subprocess for a run.
+//
+// A run only starts when a global slot is free. GlobalConcurrency previously
+// applied to scheduled runs alone, so manual and MCP-triggered runs could
+// exceed it; now every path goes through the same gate and waits in order.
 func (a *App) scheduleRun(run model.Run, token, promptOverride string) {
+	if !a.acquireSlot() {
+		a.runMu.Lock()
+		for _, item := range a.pendingRuns {
+			if item.run.ID == run.ID {
+				a.runMu.Unlock()
+				return
+			}
+		}
+		a.pendingRuns = append(a.pendingRuns, pendingRun{run: run, token: token, prompt: promptOverride})
+		a.runMu.Unlock()
+		return
+	}
+	a.startRun(run, token, promptOverride)
+}
+
+// startRun launches the subprocess for a run whose slot is already held.
+func (a *App) startRun(run model.Run, token, promptOverride string) {
 	a.runMu.Lock()
 	if _, exists := a.runTasks[run.ID]; exists {
 		a.runMu.Unlock()
+		a.releaseSlot()
 		return
 	}
 	parent := a.runCtx
@@ -200,18 +236,101 @@ func (a *App) scheduleRun(run model.Run, token, promptOverride string) {
 	a.runTasks[run.ID] = cancel
 	a.runWG.Add(1)
 	a.runMu.Unlock()
-	_, _ = a.Store.DB.Exec(`UPDATE runs SET status='running',started_at=?,heartbeat_at=? WHERE id=?`,
-		store.Now(), store.Now(), run.ID)
+	if _, err := a.Store.DB.Exec(
+		`UPDATE runs SET status='running',started_at=?,heartbeat_at=? WHERE id=?`,
+		store.Now(), store.Now(), run.ID); err != nil {
+		a.Logger.Error("could not mark run running", "run_id", run.ID, "error", err)
+	}
 	go func() {
 		defer a.runWG.Done()
+		defer a.releaseSlot()
 		defer func() {
 			a.runMu.Lock()
 			delete(a.runTasks, run.ID)
 			a.runMu.Unlock()
 			cancel()
 		}()
+		// A panic must never leave a run row `running`: the partial unique index
+		// would then block that user from ever starting another run.
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				a.Logger.Error("run goroutine panicked",
+					"run_id", run.ID, "panic", recovered, "stack", string(debug.Stack()))
+				a.failRun(context.Background(), run.ID,
+					"internal error while running the agent")
+			}
+		}()
 		a.executeRun(ctx, run.ID, run.UserID, run.Runner, token, promptOverride)
 	}()
+}
+
+// acquireSlot takes a global concurrency slot without blocking.
+func (a *App) acquireSlot() bool {
+	slots := a.runSlots
+	if slots == nil {
+		return true
+	}
+	select {
+	case slots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+// releaseSlot frees a slot and starts the next waiting run.
+func (a *App) releaseSlot() {
+	slots := a.runSlots
+	if slots == nil {
+		return
+	}
+	select {
+	case <-slots:
+	default:
+		return
+	}
+	a.dispatchPending()
+}
+
+// freeSlots reports how many runs may start right now.
+func (a *App) freeSlots() int {
+	slots := a.runSlots
+	if slots == nil {
+		return 1
+	}
+	return cap(slots) - len(slots)
+}
+
+// dispatchPending starts as many waiting runs as there are free slots.
+func (a *App) dispatchPending() {
+	for {
+		if a.freeSlots() <= 0 {
+			return
+		}
+		a.runMu.Lock()
+		if len(a.pendingRuns) == 0 {
+			a.runMu.Unlock()
+			return
+		}
+		next := a.pendingRuns[0]
+		a.pendingRuns = a.pendingRuns[1:]
+		a.runMu.Unlock()
+		if !a.acquireSlot() {
+			// Lost the race to another dispatcher; put it back at the front.
+			a.runMu.Lock()
+			a.pendingRuns = append([]pendingRun{next}, a.pendingRuns...)
+			a.runMu.Unlock()
+			return
+		}
+		a.startRun(next.run, next.token, next.prompt)
+	}
+}
+
+// queueDepth reports how many runs are waiting for a slot.
+func (a *App) queueDepth() int {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	return len(a.pendingRuns)
 }
 
 func (a *App) executeRun(
@@ -335,35 +454,86 @@ func scanRun(row rowScanner) (model.Run, error) {
 	return run, err
 }
 
+// recordCandidates stores the run's candidate list and returns the videos the
+// user has not seen before.
+//
+// The seen check is batched: loading every bvid a user ever saw does not scale,
+// and inserting row by row outside a transaction left partial state on error.
 func (a *App) recordCandidates(
 	ctx context.Context,
 	runID, userID string,
 	videos []model.Video,
 ) ([]model.Video, error) {
-	var seen map[string]bool
-	rows, err := a.Store.DB.QueryContext(ctx, `SELECT bvid FROM video_records WHERE user_id=?`, userID)
-	if err != nil {
-		return nil, err
-	}
-	seen = make(map[string]bool)
-	for rows.Next() {
-		var bvid string
-		_ = rows.Scan(&bvid)
-		seen[bvid] = true
-	}
-	_ = rows.Close()
-	accepted := make([]model.Video, 0)
+	valid := make([]model.Video, 0, len(videos))
+	seen := make(map[string]bool, len(videos))
 	for _, video := range videos {
 		if !bvidPattern.MatchString(video.BVID) || seen[video.BVID] {
 			continue
 		}
-		_, err := a.Store.DB.ExecContext(ctx, `
-			INSERT OR IGNORE INTO run_candidates(id,run_id,user_id,bvid,payload,seen_at)
-			VALUES(?,?,?,?,?,?)`,
-			model.NewID(), runID, userID, video.BVID, store.JSON(video), store.Now())
-		if err == nil {
-			accepted = append(accepted, video)
+		seen[video.BVID] = true
+		valid = append(valid, video)
+	}
+	if len(valid) == 0 {
+		return []model.Video{}, nil
+	}
+
+	// video_records is the durable seen set; candidates are per run.
+	known := map[string]bool{}
+	const batchSize = 400
+	err := a.Store.WithTx(ctx, func(tx *sql.Tx) error {
+		for start := 0; start < len(valid); start += batchSize {
+			end := min(start+batchSize, len(valid))
+			placeholders := make([]string, 0, end-start)
+			args := make([]any, 0, end-start+1)
+			args = append(args, userID)
+			for _, video := range valid[start:end] {
+				placeholders = append(placeholders, "?")
+				args = append(args, video.BVID)
+			}
+			rows, err := tx.QueryContext(ctx,
+				`SELECT bvid FROM video_records WHERE user_id=? AND bvid IN (`+
+					strings.Join(placeholders, ",")+`)`, args...)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var bvid string
+				if rows.Scan(&bvid) == nil {
+					known[bvid] = true
+				}
+			}
+			if err := rows.Err(); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			_ = rows.Close()
 		}
+		statement, err := tx.PrepareContext(ctx, `
+			INSERT OR IGNORE INTO run_candidates(id,run_id,user_id,bvid,payload,seen_at)
+			VALUES(?,?,?,?,?,?)`)
+		if err != nil {
+			return err
+		}
+		defer statement.Close()
+		now := store.Now()
+		for _, video := range valid {
+			if _, err := statement.ExecContext(ctx,
+				model.NewID(), runID, userID, video.BVID, store.JSON(video), now); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	accepted := make([]model.Video, 0, len(valid))
+	for _, video := range valid {
+		if known[video.BVID] {
+			continue
+		}
+		accepted = append(accepted, video)
 	}
 	return accepted, nil
 }
@@ -417,7 +587,7 @@ func (a *App) finishRun(
 			return nil, errors.New("a video cannot be both picked and skipped")
 		}
 	}
-	validationConfig, _ := a.loadConfig(ctx, user.ID)
+	config, _ := a.loadConfig(ctx, user.ID)
 	validTiers := map[string]bool{"值得看": true, "可以看": true, "不值当": true}
 	for _, item := range summary.Picked {
 		if !validTiers[item.Tier] {
@@ -426,11 +596,10 @@ func (a *App) finishRun(
 		if strings.TrimSpace(item.Reason) == "" || strings.TrimSpace(item.OneLiner) == "" {
 			return nil, fmt.Errorf("picked %s must include reason and one_liner", item.BVID)
 		}
-		if validationConfig.AutoComment && strings.TrimSpace(item.Comment) == "" {
+		if config.AutoComment && strings.TrimSpace(item.Comment) == "" {
 			return nil, fmt.Errorf("picked %s must include a comment when autoComment is enabled", item.BVID)
 		}
 	}
-	config, _ := a.loadConfig(ctx, user.ID)
 	day := LocalDay(config, time.Now())
 	var already int
 	_ = a.Store.DB.QueryRowContext(ctx, `
@@ -581,11 +750,16 @@ func runnerAPI(
 	})
 }
 
+// truncateText limits text by runes. Truncating by bytes would split a
+// multi-byte character and produce invalid UTF-8 for the database and the UI.
 func truncateText(value string, limit int) string {
-	if len(value) <= limit {
+	if limit <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(value) <= limit {
 		return value
 	}
-	return value[:limit]
+	return string([]rune(value)[:limit])
 }
 
 func firstText(values ...string) string {
@@ -618,4 +792,15 @@ func runJSON(run *model.Run) any {
 		value["error"] = run.Error
 	}
 	return value
+}
+
+// truncateWithEllipsis keeps text under limit runes including the ellipsis.
+func truncateWithEllipsis(value string, limit int) string {
+	if limit <= 1 {
+		return truncateText(value, max(0, limit))
+	}
+	if utf8.RuneCountInString(value) <= limit {
+		return value
+	}
+	return string([]rune(value)[:limit-1]) + "…"
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,6 +43,10 @@ type App struct {
 	runWG     sync.WaitGroup
 	runCtx    context.Context
 	runStop   context.CancelFunc
+	// runSlots bounds concurrent agent subprocesses for every run path.
+	runSlots chan struct{}
+	// pendingRuns holds runs that were created while every slot was busy.
+	pendingRuns []pendingRun
 }
 
 func New(ctx context.Context, settings *config.Settings) (*App, error) {
@@ -257,32 +262,91 @@ func (a *App) recoverOrphanRuns(ctx context.Context) error {
 	return nil
 }
 
+// maxRateLimiterKeys bounds the in-memory limiter so a scan of many source
+// IPs cannot grow it without limit.
+const maxRateLimiterKeys = 100_000
+
+type rateBucket struct {
+	times []time.Time
+	seen  time.Time
+}
+
 type rateLimiter struct {
 	mu      sync.Mutex
-	entries map[string][]time.Time
+	entries map[string]*rateBucket
+	window  time.Duration
+	calls   int
 }
 
 func newRateLimiter() *rateLimiter {
-	return &rateLimiter{entries: make(map[string][]time.Time)}
+	return &rateLimiter{entries: make(map[string]*rateBucket), window: time.Minute}
 }
 
 func (l *rateLimiter) Allow(key string, limit int, window time.Duration) bool {
 	now := time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	bucket := l.entries[key]
+	bucket, ok := l.entries[key]
+	if !ok {
+		if len(l.entries) >= maxRateLimiterKeys {
+			l.sweepLocked(now, window)
+			if len(l.entries) >= maxRateLimiterKeys {
+				l.evictOldestLocked(maxRateLimiterKeys / 100)
+			}
+		}
+		bucket = &rateBucket{}
+		l.entries[key] = bucket
+	}
+	bucket.seen = now
 	cutoff := now.Add(-window)
 	first := 0
-	for first < len(bucket) && bucket[first].Before(cutoff) {
+	for first < len(bucket.times) && bucket.times[first].Before(cutoff) {
 		first++
 	}
-	bucket = bucket[first:]
-	if len(bucket) >= limit {
-		l.entries[key] = bucket
+	bucket.times = bucket.times[first:]
+	if len(bucket.times) >= limit {
 		return false
 	}
-	l.entries[key] = append(bucket, now)
+	bucket.times = append(bucket.times, now)
+	// Opportunistic cleanup keeps the map small without a background task.
+	l.calls++
+	if l.calls%4096 == 0 {
+		l.sweepLocked(now, window)
+	}
 	return true
+}
+
+func (l *rateLimiter) Sweep(now time.Time, window time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sweepLocked(now, window)
+}
+
+func (l *rateLimiter) sweepLocked(now time.Time, window time.Duration) {
+	cutoff := now.Add(-2 * window)
+	for key, bucket := range l.entries {
+		if bucket.seen.Before(cutoff) {
+			delete(l.entries, key)
+		}
+	}
+}
+
+func (l *rateLimiter) evictOldestLocked(count int) {
+	if count < 1 {
+		count = 1
+	}
+	type entry struct {
+		key  string
+		seen time.Time
+	}
+	entries := make([]entry, 0, len(l.entries))
+	for key, bucket := range l.entries {
+		entries = append(entries, entry{key, bucket.seen})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].seen.Before(entries[j].seen) })
+	for i := 0; i < count && i < len(entries); i++ {
+		delete(l.entries, entries[i].key)
+	}
 }
 
 type loginBroker struct {
