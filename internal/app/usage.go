@@ -30,10 +30,18 @@ func (a *App) usage(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) usageDashboard(ctx context.Context, userID string, days int) (map[string]any, error) {
 	cutoff := time.Now().UTC().AddDate(0, 0, -(days - 1)).Format("2006-01-02")
+	// cc-switch imports arrive as daily rollups; runs recorded by this service
+	// land in run_usage. Union both so the dashboard reflects what actually ran
+	// without double counting either source.
 	rows, err := a.Store.DB.QueryContext(ctx, `
 		SELECT date,app_type,provider_id,model,request_count,input_tokens,output_tokens,
 			cache_read_tokens,total_cost_usd
-		FROM usage_records WHERE user_id=? AND date>=? ORDER BY date`, userID, cutoff)
+		FROM usage_records WHERE user_id=? AND date>=?
+		UNION ALL
+		SELECT substr(created_at,1,10) AS date,runner AS app_type,provider AS provider_id,
+			model,request_count,input_tokens,output_tokens,cache_read_tokens,cost_usd
+		FROM run_usage WHERE user_id=? AND substr(created_at,1,10)>=?
+		ORDER BY date`, userID, cutoff, userID, cutoff)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +219,7 @@ func (a *App) ingestUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	updated := 0
 	for _, row := range body.Rows {
-		if row.AppType != "codex" && row.AppType != "hermes" {
+		if len(row.AppType) == 0 || len(row.AppType) > 32 {
 			continue
 		}
 		_, err := a.Store.DB.ExecContext(r.Context(), `

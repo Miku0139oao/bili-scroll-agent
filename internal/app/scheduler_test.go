@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -290,4 +291,62 @@ func TestSchemaHasRunUsage(t *testing.T) {
 	}
 	_ = sql.ErrNoRows
 	_ = filepath.Separator
+}
+
+func TestRunUsageIsRecordedAndAggregated(t *testing.T) {
+	application := testApp(t)
+	ctx := context.Background()
+	seedUser(t, application, "u4", false)
+	if _, err := application.Store.DB.Exec(`
+		INSERT INTO runs(id,user_id,kind,runner,status,finished_at,telemetry)
+		VALUES('run-usage','u4','manual','codex','succeeded',?,'{}')`, store.Now()); err != nil {
+		t.Fatal(err)
+	}
+	application.recordRunUsage("run-usage", "u4", "codex", "deepseek", "deepseek-chat", map[string]any{
+		"input_tokens": float64(100), "output_tokens": float64(20),
+		"cache_read_tokens": float64(50), "cost_usd": 0.02,
+	})
+	// Re-recording the same run must upsert, not double count.
+	application.recordRunUsage("run-usage", "u4", "codex", "deepseek", "deepseek-chat", map[string]any{
+		"input_tokens": float64(100), "output_tokens": float64(20),
+		"cache_read_tokens": float64(50), "cost_usd": 0.02,
+	})
+
+	var count int
+	if err := application.Store.DB.QueryRow(
+		`SELECT COUNT(*) FROM run_usage WHERE run_id='run-usage'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("run_usage rows = %d, want 1", count)
+	}
+
+	dashboard, err := application.usageDashboard(ctx, "u4", 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	totals := dashboard["totals"].(map[string]any)
+	if totals["input_tokens"] != int64(100) {
+		t.Fatalf("dashboard input tokens = %v", totals["input_tokens"])
+	}
+	if totals["cost_usd"] != 0.02 {
+		t.Fatalf("dashboard cost = %v", totals["cost_usd"])
+	}
+	encoded, err := json.Marshal(dashboard["providers"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var providers []map[string]any
+	if err := json.Unmarshal(encoded, &providers); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range providers {
+		if item["provider"] == "deepseek" && item["app_type"] == "codex" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("service run usage was not aggregated")
+	}
 }

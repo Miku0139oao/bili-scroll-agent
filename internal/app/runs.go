@@ -368,6 +368,9 @@ func (a *App) executeRun(
 		"usage": result.Usage, "runner_exit_code": result.ExitCode,
 		"runner_timed_out": result.TimedOut,
 	}
+	if len(result.Warnings) > 0 {
+		telemetry["runner_warnings"] = result.Warnings
+	}
 	if result.Stdout != "" {
 		telemetry["runner_stdout_tail"] = truncateText(result.Stdout, 8000)
 	}
@@ -376,6 +379,8 @@ func (a *App) executeRun(
 	}
 	_, _ = a.Store.DB.Exec(`UPDATE runs SET telemetry=? WHERE id=?`,
 		store.JSON(telemetry), runID)
+	a.recordRunUsage(runID, userID, runnerName, provider, modelName, result.Usage)
+	_ = currentError
 	if status != "running" {
 		a.events.Publish(userID, "run", map[string]any{"run_id": runID, "status": status})
 		return
@@ -674,9 +679,15 @@ func (a *App) finishRun(
 	if err != nil {
 		return nil, err
 	}
+	// Deliveries talk to Bilibili and must not be aborted when the MCP tool
+	// call that committed the run returns; run them on a detached, bounded
+	// context so a slow comment or favorite completes or fails cleanly.
+	deliveryCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx), a.Settings.DeliveryTimeout)
 	deliveryResults := a.processDeliveries(
-		ctx, user, runID, config, a.loadAdminSettings(ctx), picked, summary.DeliveryDrafts,
+		deliveryCtx, user, runID, config, a.loadAdminSettings(ctx), picked, summary.DeliveryDrafts,
 	)
+	cancel()
 	_, _ = a.Store.DB.Exec(`UPDATE api_tokens SET revoked_at=? WHERE run_id=? AND revoked_at IS NULL`,
 		now, runID)
 	a.events.Publish(user.ID, "run", map[string]any{"run_id": runID, "status": "succeeded"})
@@ -803,4 +814,38 @@ func truncateWithEllipsis(value string, limit int) string {
 		return value
 	}
 	return string([]rune(value)[:limit-1]) + "…"
+}
+
+// recordRunUsage stores per-run token and cost telemetry.
+//
+// usage_records stays the per-day rollup fed by cc-switch imports; run usage is
+// keyed by run_id so a retry cannot double count. An unset route is recorded
+// verbatim as "runtime-default" rather than guessing what the CLI used.
+func (a *App) recordRunUsage(
+	runID, userID, runnerName, provider, modelName string,
+	usage map[string]any,
+) {
+	if provider == "" {
+		provider = "runtime-default"
+	}
+	if modelName == "" {
+		modelName = "runtime-default"
+	}
+	_, err := a.Store.DB.Exec(`
+		INSERT INTO run_usage(run_id,user_id,runner,provider,model,source,input_tokens,
+			output_tokens,cache_read_tokens,cache_creation_tokens,cost_usd,request_count,created_at)
+		VALUES(?,?,?,?,?,'service',?,?,?,?,?,1,?)
+		ON CONFLICT(run_id) DO UPDATE SET
+			input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,
+			cache_read_tokens=excluded.cache_read_tokens,
+			cache_creation_tokens=excluded.cache_creation_tokens,
+			cost_usd=excluded.cost_usd`,
+		runID, userID, runnerName, provider, modelName,
+		int(numberFromAny(usage["input_tokens"])), int(numberFromAny(usage["output_tokens"])),
+		int(numberFromAny(usage["cache_read_tokens"])),
+		int(numberFromAny(usage["cache_creation_tokens"])),
+		numberFromAny(usage["cost_usd"]), store.Now())
+	if err != nil {
+		a.Logger.Warn("could not record run usage", "run_id", runID, "error", err)
+	}
 }

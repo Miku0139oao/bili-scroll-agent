@@ -48,6 +48,7 @@ type Settings struct {
 	WhisperModelPath      string
 	WebDist               string
 	ProviderTimeout       time.Duration
+	DeliveryTimeout       time.Duration
 	DisableJSAdapters     bool
 }
 
@@ -94,6 +95,7 @@ func Load() (Settings, error) {
 		WebDist:               env("BILI_SCROLL_WEB_DIST", "web/dist"),
 		ProviderTimeout:       time.Duration(envInt("BILI_SCROLL_PROVIDER_TIMEOUT_SECONDS", 20)) * time.Second,
 		DisableJSAdapters:     envBool("BILI_SCROLL_DISABLE_JS_ADAPTERS", false),
+		DeliveryTimeout:       time.Duration(envInt("BILI_SCROLL_DELIVERY_TIMEOUT_SECONDS", 600)) * time.Second,
 	}
 	if s.Port < 1 || s.Port > 65535 {
 		return Settings{}, errors.New("BILI_SCROLL_PORT must be between 1 and 65535")

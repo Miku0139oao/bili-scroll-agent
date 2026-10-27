@@ -38,6 +38,7 @@ func testApp(t *testing.T) *App {
 		APIRatePerMinute:    10000,
 		BindOutboundEnabled: true,
 		AgentTimeout:        30 * time.Second,
+		DeliveryTimeout:     30 * time.Second,
 		WebDist:             filepath.Join(root, "web"),
 	}
 	application, err := New(context.Background(), settings)
