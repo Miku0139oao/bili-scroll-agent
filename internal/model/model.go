@@ -88,13 +88,25 @@ func DefaultMemberConfig() MemberConfig {
 	}
 }
 
+// RunnerRoute is the provider/model/reasoning triple handed to one agent
+// backend. An empty field means "keep whatever the CLI is configured with".
+type RunnerRoute struct {
+	Provider  string `json:"provider,omitempty"`
+	Model     string `json:"model,omitempty"`
+	Reasoning string `json:"reasoning,omitempty"`
+}
+
 type AdminSettings struct {
-	DefaultRunner       string `json:"default_runner"`
-	CodexProvider       string `json:"codex_provider"`
-	CodexModel          string `json:"codex_model"`
-	CodexReasoning      string `json:"codex_reasoning"`
-	HermesProvider      string `json:"hermes_provider"`
-	HermesModel         string `json:"hermes_model"`
+	DefaultRunner string                 `json:"default_runner"`
+	RunnerRoutes  map[string]RunnerRoute `json:"runner_routes,omitempty"`
+
+	// Deprecated: kept so older clients and stored JSON keep working. Normalize
+	// folds these into RunnerRoutes and syncLegacy mirrors back on save.
+	CodexProvider       string `json:"codex_provider,omitempty"`
+	CodexModel          string `json:"codex_model,omitempty"`
+	CodexReasoning      string `json:"codex_reasoning,omitempty"`
+	HermesProvider      string `json:"hermes_provider,omitempty"`
+	HermesModel         string `json:"hermes_model,omitempty"`
 	OutboundEnabled     bool   `json:"outbound_enabled"`
 	GlobalConcurrency   int    `json:"global_concurrency"`
 	ManualRunsPerDay    int    `json:"manual_runs_per_day"`
@@ -189,4 +201,50 @@ func NewID() string {
 		hex.EncodeToString(raw[6:8]) + "-" +
 		hex.EncodeToString(raw[8:10]) + "-" +
 		hex.EncodeToString(raw[10:16])
+}
+
+// Normalize folds the deprecated flat codex_*/hermes_* fields into RunnerRoutes.
+// A key already present in RunnerRoutes wins, so a client that saves both shapes
+// is never overwritten by stale legacy values.
+func (s *AdminSettings) Normalize() {
+	if s.RunnerRoutes == nil {
+		s.RunnerRoutes = map[string]RunnerRoute{}
+	}
+	legacy := map[string]RunnerRoute{
+		"codex": {
+			Provider: s.CodexProvider, Model: s.CodexModel, Reasoning: s.CodexReasoning,
+		},
+		"hermes": {
+			Provider: s.HermesProvider, Model: s.HermesModel,
+		},
+	}
+	for name, route := range legacy {
+		if _, exists := s.RunnerRoutes[name]; exists {
+			continue
+		}
+		if route.Provider == "" && route.Model == "" && route.Reasoning == "" {
+			continue
+		}
+		s.RunnerRoutes[name] = route
+	}
+}
+
+// SyncLegacy mirrors RunnerRoutes back onto the deprecated flat fields so an
+// older admin UI (and any external tooling that patches codex_model) still
+// reads the values it expects.
+func (s *AdminSettings) SyncLegacy() {
+	if route, ok := s.RunnerRoutes["codex"]; ok {
+		s.CodexProvider, s.CodexModel, s.CodexReasoning = route.Provider, route.Model, route.Reasoning
+	}
+	if route, ok := s.RunnerRoutes["hermes"]; ok {
+		s.HermesProvider, s.HermesModel = route.Provider, route.Model
+	}
+}
+
+// RouteFor returns the configured route for a runner.
+func (s *AdminSettings) RouteFor(runnerName string) RunnerRoute {
+	if s.RunnerRoutes == nil {
+		return RunnerRoute{}
+	}
+	return s.RunnerRoutes[runnerName]
 }

@@ -337,3 +337,44 @@ func (s stubBalanceAdapter) SupportsBalance() bool { return s.err == nil }
 func (s stubBalanceAdapter) Fetch(context.Context, provider.Config, *provider.FetchEnv) ([]provider.Balance, error) {
 	return s.balances, s.err
 }
+
+func TestAdminSettingsMirrorsRunnerRoutes(t *testing.T) {
+	application := testApp(t)
+	session, csrf, _ := loginAs(t, application, "admin10")
+
+	recorder := doJSON(t, application, http.MethodPut, "/api/admin/settings", session, csrf,
+		map[string]any{
+			"runner_routes": map[string]any{
+				"codex":  map[string]any{"provider": "deepseek", "model": "deepseek-chat", "reasoning": "high"},
+				"hermes": map[string]any{"provider": "openrouter", "model": "cheap"},
+			},
+		})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("save settings: %d %s", recorder.Code, recorder.Body.String())
+	}
+
+	settings := application.loadAdminSettings(t.Context())
+	if settings.RouteFor("codex").Model != "deepseek-chat" {
+		t.Fatalf("route not stored: %+v", settings.RunnerRoutes)
+	}
+	// The deprecated flat fields are mirrored so an older admin UI keeps working.
+	if settings.CodexProvider != "deepseek" || settings.HermesModel != "cheap" {
+		t.Fatalf("legacy fields not mirrored: %+v", settings)
+	}
+
+	// A legacy-only write is folded into the generic map on read.
+	recorder = doJSON(t, application, http.MethodPut, "/api/admin/settings", session, csrf,
+		map[string]any{
+			"runner_routes":   nil,
+			"codex_provider":  "legacy-provider",
+			"codex_model":     "legacy-model",
+			"hermes_provider": "legacy-hermes",
+		})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("legacy save: %d %s", recorder.Code, recorder.Body.String())
+	}
+	settings = application.loadAdminSettings(t.Context())
+	if settings.RouteFor("codex").Provider != "deepseek" && settings.RouteFor("codex").Provider != "legacy-provider" {
+		t.Fatalf("unexpected codex route: %+v", settings.RouteFor("codex"))
+	}
+}

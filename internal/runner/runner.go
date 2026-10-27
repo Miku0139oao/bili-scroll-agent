@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,12 +23,8 @@ type Result struct {
 	Stderr   string
 	TimedOut bool
 	Usage    map[string]any
-}
-
-type Info struct {
-	Available bool   `json:"available"`
-	Command   string `json:"command"`
-	Home      string `json:"home"`
+	// Warnings records backend options that were accepted but not applied.
+	Warnings []string
 }
 
 type Request struct {
@@ -39,135 +34,6 @@ type Request struct {
 	Provider  string
 	Model     string
 	Reasoning string
-}
-
-func Status(settings *config.Settings) map[string]Info {
-	return map[string]Info{
-		"codex": {
-			Available: ResolveExecutable(settings.CodexBin, codexCandidates()) != "",
-			Command:   firstNonEmpty(ResolveExecutable(settings.CodexBin, codexCandidates()), settings.CodexBin),
-			Home:      codexHome(settings),
-		},
-		"hermes": {
-			Available: ResolveExecutable(settings.HermesBin, hermesCandidates()) != "",
-			Command:   firstNonEmpty(ResolveExecutable(settings.HermesBin, hermesCandidates()), settings.HermesBin),
-			Home:      hermesHome(settings),
-		},
-	}
-}
-
-func Run(ctx context.Context, settings *config.Settings, name string, request Request) (Result, error) {
-	switch name {
-	case "codex":
-		return runCodex(ctx, settings, request)
-	case "hermes":
-		return runHermes(ctx, settings, request)
-	default:
-		return Result{}, errors.New("unknown runner: " + name)
-	}
-}
-
-func runCodex(ctx context.Context, settings *config.Settings, request Request) (Result, error) {
-	executable := ResolveExecutable(settings.CodexBin, codexCandidates())
-	if executable == "" {
-		return Result{}, errors.New("codex executable not found")
-	}
-	work, err := os.MkdirTemp("", "bili-scroll-"+shortID(request.Run.ID)+"-")
-	if err != nil {
-		return Result{}, err
-	}
-	defer os.RemoveAll(work)
-	home := codexHome(settings)
-	if err := os.MkdirAll(home, 0o700); err != nil {
-		return Result{}, err
-	}
-	args := []string{
-		"exec", "--ephemeral", "--skip-git-repo-check", "-C", work,
-		"-c", `approval_policy="never"`,
-		"--disable", "plugins",
-		"-c", `sandbox_mode="read-only"`,
-		"-c", `mcp_servers.bili_scroll.url="http://127.0.0.1:` + fmt.Sprint(settings.Port) + `/api/mcp"`,
-		"-c", `mcp_servers.bili_scroll.bearer_token_env_var="BILI_SCROLL_TOKEN"`,
-		"-c", `mcp_servers.bili_scroll.default_tools_approval_mode="auto"`,
-		"-c", `mcp_servers.bili_scroll.startup_timeout_sec=20`,
-		"-c", `mcp_servers.bili_scroll.tool_timeout_sec=300`,
-	}
-	if request.Provider != "" {
-		args = append(args, "-c", fmt.Sprintf(`model_provider="%s"`, tomlEscape(request.Provider)))
-	}
-	if request.Model != "" {
-		args = append(args, "--model", request.Model)
-	}
-	if request.Reasoning != "" {
-		args = append(args, "-c", fmt.Sprintf(
-			`model_reasoning_effort="%s"`, tomlEscape(request.Reasoning)))
-	}
-	args = append(args, "--json", "-")
-	env := childEnv(map[string]string{
-		"CODEX_HOME":            home,
-		"BILI_SCROLL_RUN_TOKEN": request.Token,
-		"BILI_SCROLL_TOKEN":     request.Token,
-		"BILI_SCROLL_API_URL":   fmt.Sprintf("http://127.0.0.1:%d", settings.Port),
-	})
-	result, err := execute(ctx, settings, executable, args, work, env, request.Prompt)
-	if err != nil {
-		return result, err
-	}
-	result.Usage = usageFromJSONL([]byte(result.Stdout))
-	return result, nil
-}
-
-func runHermes(ctx context.Context, settings *config.Settings, request Request) (Result, error) {
-	executable := ResolveExecutable(settings.HermesBin, hermesCandidates())
-	if executable == "" {
-		return Result{}, errors.New("hermes executable not found")
-	}
-	work, err := os.MkdirTemp("", "bili-scroll-"+shortID(request.Run.ID)+"-")
-	if err != nil {
-		return Result{}, err
-	}
-	defer os.RemoveAll(work)
-	home := hermesHome(settings)
-	if err := os.MkdirAll(home, 0o700); err != nil {
-		return Result{}, err
-	}
-	promptFile := filepath.Join(work, "prompt.txt")
-	if err := os.WriteFile(promptFile, []byte(request.Prompt), 0o600); err != nil {
-		return Result{}, err
-	}
-	usageFile := filepath.Join(work, "usage.json")
-	args := []string{
-		"--usage-file", usageFile,
-		"chat", "--oneshot", "--quiet",
-		"--query-file", promptFile,
-		"--source", "tool",
-	}
-	if request.Provider != "" {
-		args = append(args, "--provider", request.Provider)
-	}
-	if request.Model != "" {
-		args = append(args, "--model", request.Model)
-	}
-	if request.Reasoning != "" {
-		args = append(args, "--reasoning", request.Reasoning)
-	}
-	env := childEnv(map[string]string{
-		"HERMES_HOME":           home,
-		"BILI_SCROLL_RUN_TOKEN": request.Token,
-		"BILI_SCROLL_TOKEN":     request.Token,
-		"BILI_SCROLL_API_URL":   fmt.Sprintf("http://127.0.0.1:%d", settings.Port),
-	})
-	result, err := execute(ctx, settings, executable, args, work, env, "")
-	if err != nil {
-		return result, err
-	}
-	if raw, readErr := os.ReadFile(usageFile); readErr == nil {
-		var usage map[string]any
-		if json.Unmarshal(raw, &usage) == nil {
-			result.Usage = normalizeUsage(usage)
-		}
-	}
-	return result, nil
 }
 
 func execute(

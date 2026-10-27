@@ -46,12 +46,9 @@ func (a *App) status(w http.ResponseWriter, r *http.Request) {
 	loggedIn := err == nil
 	pickedToday := a.pickedCount(r.Context(), identity.User.ID, LocalDay(config, time.Now()))
 	admin := a.loadAdminSettings(r.Context())
-	routeProvider := admin.CodexProvider
-	routeModel := admin.CodexModel
-	if config.Runner == "hermes" {
-		routeProvider = admin.HermesProvider
-		routeModel = admin.HermesModel
-	}
+	route := admin.RouteFor(config.Runner)
+	routeProvider := route.Provider
+	routeModel := route.Model
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "user": publicUserValue(identity.User), "config": config,
 		"schedule": schedule,
@@ -63,7 +60,8 @@ func (a *App) status(w http.ResponseWriter, r *http.Request) {
 		"runners":         runner.Status(a.Settings),
 		"runner_route": map[string]any{
 			"runner": config.Runner, "provider": routeProvider, "model": routeModel,
-			"source": map[bool]string{true: "admin", false: "runtime-default"}[routeProvider != "" || routeModel != ""],
+			"reasoning": route.Reasoning,
+			"source":    map[bool]string{true: "admin", false: "runtime-default"}[routeProvider != "" || routeModel != ""],
 		},
 		"active_run":     runJSON(a.activeRun(r.Context(), identity.User.ID)),
 		"latest_run":     runJSON(a.latestRun(r.Context(), identity.User.ID)),

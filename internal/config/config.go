@@ -29,8 +29,10 @@ type Settings struct {
 	RunTokenDuration      time.Duration
 	CodexBin              string
 	HermesBin             string
+	ClaudeBin             string
 	CodexHome             string
 	HermesHome            string
+	ClaudeHome            string
 	AgentTimeout          time.Duration
 	AgentOutputLimit      int64
 	GlobalConcurrency     int
@@ -72,8 +74,10 @@ func Load() (Settings, error) {
 		RunTokenDuration:      time.Duration(envInt("BILI_SCROLL_RUN_TOKEN_MINUTES", 45)) * time.Minute,
 		CodexBin:              env("BILI_SCROLL_CODEX_BIN", "codex"),
 		HermesBin:             env("BILI_SCROLL_HERMES_BIN", "hermes"),
+		ClaudeBin:             env("BILI_SCROLL_CLAUDE_BIN", "claude"),
 		CodexHome:             strings.TrimSpace(os.Getenv("BILI_SCROLL_CODEX_HOME")),
 		HermesHome:            strings.TrimSpace(os.Getenv("BILI_SCROLL_HERMES_HOME")),
+		ClaudeHome:            strings.TrimSpace(os.Getenv("BILI_SCROLL_CLAUDE_HOME")),
 		AgentTimeout:          time.Duration(envInt("BILI_SCROLL_AGENT_TIMEOUT_SECONDS", 1800)) * time.Second,
 		AgentOutputLimit:      int64(envInt("BILI_SCROLL_AGENT_OUTPUT_LIMIT_BYTES", 2_000_000)),
 		GlobalConcurrency:     envInt("BILI_SCROLL_GLOBAL_CONCURRENCY", 1),

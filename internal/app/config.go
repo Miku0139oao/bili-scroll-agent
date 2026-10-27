@@ -11,6 +11,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/Miku0139oao/bili-scroll-agent/internal/model"
+	"github.com/Miku0139oao/bili-scroll-agent/internal/runner"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/store"
 )
 
@@ -83,7 +84,7 @@ func (a *App) saveConfig(ctx context.Context, userID string, patch map[string]an
 	if err := json.Unmarshal(encoded, &next); err != nil {
 		return current, err
 	}
-	if next.Runner != "codex" && next.Runner != "hermes" {
+	if _, ok := runner.Lookup(next.Runner); !ok {
 		return current, errors.New("runner must be codex or hermes")
 	}
 	if next.PerDay < 0 || next.PerDay > 50 {
@@ -136,6 +137,7 @@ func (a *App) loadAdminSettings(ctx context.Context) model.AdminSettings {
 		`SELECT value FROM system_settings WHERE key='admin'`).Scan(&payload); err == nil {
 		_ = json.Unmarshal([]byte(payload), &settings)
 	}
+	settings.Normalize()
 	if settings.GlobalConcurrency < 1 {
 		settings.GlobalConcurrency = 1
 	}
@@ -162,6 +164,8 @@ func (a *App) saveAdminSettings(ctx context.Context, patch map[string]any) (mode
 	if next.GlobalConcurrency < 1 || next.GlobalConcurrency > 8 {
 		return current, errors.New("global concurrency must be between 1 and 8")
 	}
+	next.Normalize()
+	next.SyncLegacy()
 	_, err := a.Store.DB.ExecContext(ctx, `
 		INSERT INTO system_settings(key,value,updated_at) VALUES('admin',?,?)
 		ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`,

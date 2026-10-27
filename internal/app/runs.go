@@ -70,7 +70,7 @@ func (a *App) createRun(
 	if chosen == "" {
 		chosen = admin.DefaultRunner
 	}
-	if chosen != "codex" && chosen != "hermes" {
+	if _, ok := runner.Lookup(chosen); !ok {
 		return model.Run{}, "", runError{"unknown runner"}
 	}
 	now := time.Now().UTC()
@@ -224,13 +224,8 @@ func (a *App) executeRun(
 		return
 	}
 	admin := a.loadAdminSettings(ctx)
-	provider, modelName, reasoning := "", "", ""
-	switch runnerName {
-	case "codex":
-		provider, modelName, reasoning = admin.CodexProvider, admin.CodexModel, admin.CodexReasoning
-	case "hermes":
-		provider, modelName, reasoning = admin.HermesProvider, admin.HermesModel, admin.CodexReasoning
-	}
+	route := admin.RouteFor(runnerName)
+	provider, modelName, reasoning := route.Provider, route.Model, route.Reasoning
 	prompt := promptOverride
 	if prompt == "" {
 		prompt = buildDutyPrompt(runID, userID, config)
