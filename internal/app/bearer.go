@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -56,18 +55,6 @@ func requireScope(identity bearerContext, scope string) error {
 		}
 	}
 	return errors.New("token lacks required scope: " + scope)
-}
-
-func (a *App) userForBearer(ctx context.Context, raw string) (model.User, string, error) {
-	var userID string
-	err := a.Store.DB.QueryRowContext(ctx, `
-		SELECT user_id FROM api_tokens WHERE id_hash=? AND revoked_at IS NULL`,
-		a.Cipher.TokenHash(raw)).Scan(&userID)
-	if err != nil {
-		return model.User{}, "", err
-	}
-	user, err := a.userByID(ctx, userID)
-	return user, userID, err
 }
 
 func expired(value string) bool {

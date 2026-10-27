@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -473,8 +472,4 @@ func stringFromAny(value any) string {
 	default:
 		return ""
 	}
-}
-
-func isNoRows(err error) bool {
-	return errors.Is(err, sql.ErrNoRows)
 }

@@ -262,11 +262,9 @@ func (a *App) refreshAllProviderBalances(ctx context.Context, userID string) []m
 			"provider": record.ProviderID, "display_name": record.DisplayName,
 			"balances": []map[string]any{},
 		}
-		if payload != nil {
-			for key, value := range payload {
-				if key != "provider" {
-					item[key] = value
-				}
+		for key, value := range payload {
+			if key != "provider" {
+				item[key] = value
 			}
 		}
 		if err != nil {

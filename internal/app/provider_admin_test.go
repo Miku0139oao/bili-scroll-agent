@@ -358,6 +358,7 @@ func TestAdminSettingsMirrorsRunnerRoutes(t *testing.T) {
 		t.Fatalf("route not stored: %+v", settings.RunnerRoutes)
 	}
 	// The deprecated flat fields are mirrored so an older admin UI keeps working.
+	//lint:ignore SA1019 the mirror is the behaviour under test
 	if settings.CodexProvider != "deepseek" || settings.HermesModel != "cheap" {
 		t.Fatalf("legacy fields not mirrored: %+v", settings)
 	}

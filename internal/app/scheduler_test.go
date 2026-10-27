@@ -239,7 +239,9 @@ func TestReapStaleRuns(t *testing.T) {
 
 func TestRateLimiterSweep(t *testing.T) {
 	limiter := newRateLimiter()
-	if !limiter.Allow("a", 2, time.Minute) || !limiter.Allow("a", 2, time.Minute) {
+	first := limiter.Allow("a", 2, time.Minute)
+	second := limiter.Allow("a", 2, time.Minute)
+	if !first || !second {
 		t.Fatal("expected the first two calls to pass")
 	}
 	if limiter.Allow("a", 2, time.Minute) {

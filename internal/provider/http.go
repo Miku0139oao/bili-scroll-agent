@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -213,41 +212,4 @@ func (c *guardedClient) do(ctx context.Context, opts fetchOptions) (HTTPResponse
 		return result, fmt.Errorf("request failed (HTTP %d)", response.StatusCode)
 	}
 	return result, nil
-}
-
-// newGuardedClient builds the per-fetch client used by an adapter.
-func newGuardedClient(registry *Registry, cfg Config, apiKey string) *guardedClient {
-	total := &atomic.Int64{}
-	return &guardedClient{
-		guard:      newGuard(cfg.AllowHosts, cfg.BaseURL),
-		client:     registry.opts.HTTPClient,
-		maxBytes:   registry.opts.MaxResponseBytes,
-		totalLimit: registry.opts.MaxTotalResponseBytes,
-		total:      total,
-		userAgent:  registry.opts.UserAgent,
-	}
-}
-
-// waitForContext returns ctx.Err() when done, used by adapters that wrap a
-// custom client with no timeout of their own.
-func waitForContext(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		return nil
-	}
-}
-
-// isLoopbackAddr reports whether a dialed address is on the local machine.
-func isLoopbackAddr(address string) bool {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return false
-	}
-	if isLoopbackHost(host) {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }

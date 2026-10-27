@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -356,8 +355,3 @@ var (
 type credentialError struct{ message string }
 
 func (e *credentialError) Error() string { return e.message }
-
-func encodeCredential(value bilibili.Credential) string {
-	raw, _ := json.Marshal(value)
-	return string(raw)
-}

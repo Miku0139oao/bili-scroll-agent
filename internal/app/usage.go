@@ -359,10 +359,6 @@ func numberFromAny(value any) float64 {
 	}
 }
 
-func floatFromAny(value any) float64 {
-	return numberFromAny(value)
-}
-
 func firstNonEmptyText(values ...string) string {
 	for _, value := range values {
 		if value != "" {

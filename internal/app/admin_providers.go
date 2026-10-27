@@ -312,10 +312,10 @@ func (a *App) saveProvider(ctx context.Context, providerID string, body provider
 	}
 	authStyle := firstNonEmptyText(record.AuthStyle, "bearer")
 
-	encrypted := record.APIKey
-	hasStoredKey := record.HasAPIKey
+	// Preserve the existing ciphertext unless a new key is supplied or the
+	// caller explicitly clears it.
 	var ciphertext sql.NullString
-	if hasStoredKey {
+	if record.HasAPIKey {
 		_ = a.Store.DB.QueryRowContext(ctx,
 			`SELECT api_key_enc FROM provider_accounts WHERE provider_id=?`, providerID).Scan(&ciphertext)
 	}
@@ -328,7 +328,6 @@ func (a *App) saveProvider(ctx context.Context, providerID string, body provider
 		}
 		ciphertext = sql.NullString{String: value, Valid: true}
 	}
-	_ = encrypted
 
 	version := record.ScriptVersion
 	if kind == provider.KindJS && script != record.Script {

@@ -11,15 +11,6 @@ import (
 	"time"
 )
 
-func testRegistry(t *testing.T, opts Options) (*Registry, *httptest.Server) {
-	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "no route", http.StatusNotFound)
-	}))
-	t.Cleanup(server.Close)
-	return NewRegistry(opts), server
-}
-
 func TestValidateBaseURL(t *testing.T) {
 	valid := []string{
 		"https://api.deepseek.com",

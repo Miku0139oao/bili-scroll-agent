@@ -223,6 +223,7 @@ func TestNormalizeUsageAliases(t *testing.T) {
 
 func TestAdminRouteNormalization(t *testing.T) {
 	settings := model.DefaultAdminSettings()
+	//lint:ignore SA1019 exercising the deprecated compatibility fields on purpose
 	settings.CodexProvider = "deepseek"
 	settings.CodexModel = "deepseek-chat"
 	settings.Normalize()
@@ -233,6 +234,7 @@ func TestAdminRouteNormalization(t *testing.T) {
 
 	// An explicit map entry wins over the legacy fields.
 	settings.RunnerRoutes["codex"] = model.RunnerRoute{Provider: "openrouter", Model: "x"}
+	//lint:ignore SA1019 exercising the deprecated compatibility fields on purpose
 	settings.CodexProvider = "stale"
 	settings.Normalize()
 	if settings.RouteFor("codex").Provider != "openrouter" {
@@ -241,6 +243,7 @@ func TestAdminRouteNormalization(t *testing.T) {
 
 	// Saving mirrors the map back so an older UI still reads it.
 	settings.SyncLegacy()
+	//lint:ignore SA1019 the mirror is the behaviour under test
 	if settings.CodexProvider != "openrouter" || settings.CodexModel != "x" {
 		t.Fatalf("legacy mirror not updated: %+v", settings)
 	}
