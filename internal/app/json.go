@@ -33,6 +33,19 @@ func decodeJSON(r *http.Request, target any) error {
 	return nil
 }
 
+// decodeOptionalJSON decodes a body when one is present and ignores an empty
+// body, for endpoints whose payload is entirely optional.
+func decodeOptionalJSON(r *http.Request, target any) error {
+	if r.Body == nil || r.ContentLength == 0 {
+		return nil
+	}
+	decoder := json.NewDecoder(io.LimitReader(r.Body, maxJSONBody))
+	if err := decoder.Decode(target); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
+}
+
 func queryInt(r *http.Request, key string, fallback, min, max int) int {
 	raw := r.URL.Query().Get(key)
 	if raw == "" {

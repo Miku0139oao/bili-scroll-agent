@@ -18,6 +18,7 @@ import (
 
 	"github.com/Miku0139oao/bili-scroll-agent/internal/bilibili"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/config"
+	"github.com/Miku0139oao/bili-scroll-agent/internal/provider"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/security"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/store"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/version"
@@ -25,21 +26,22 @@ import (
 )
 
 type App struct {
-	Settings *config.Settings
-	Store    *store.Store
-	Cipher   *security.Cipher
-	Mux      *http.ServeMux
-	Logger   *slog.Logger
-	limiter  *rateLimiter
-	broker   *loginBroker
-	events   *eventHub
-	Bili     *bilibili.Client
-	WebFS    fs.FS
-	runMu    sync.Mutex
-	runTasks map[string]context.CancelFunc
-	runWG    sync.WaitGroup
-	runCtx   context.Context
-	runStop  context.CancelFunc
+	Settings  *config.Settings
+	Store     *store.Store
+	Cipher    *security.Cipher
+	Mux       *http.ServeMux
+	Logger    *slog.Logger
+	limiter   *rateLimiter
+	broker    *loginBroker
+	events    *eventHub
+	Bili      *bilibili.Client
+	Providers *provider.Registry
+	WebFS     fs.FS
+	runMu     sync.Mutex
+	runTasks  map[string]context.CancelFunc
+	runWG     sync.WaitGroup
+	runCtx    context.Context
+	runStop   context.CancelFunc
 }
 
 func New(ctx context.Context, settings *config.Settings) (*App, error) {
@@ -70,6 +72,11 @@ func newApp(ctx context.Context, settings *config.Settings, recoverRuns bool) (*
 		broker:   newLoginBroker(),
 		events:   newEventHub(),
 		Bili:     bilibili.New(),
+		Providers: provider.NewRegistry(provider.Options{
+			Timeout:   settings.ProviderTimeout,
+			UserAgent: version.UserAgent(),
+			DisableJS: settings.DisableJSAdapters,
+		}),
 		WebFS:    webui.FS,
 		runTasks: make(map[string]context.CancelFunc),
 	}
@@ -147,8 +154,13 @@ func (a *App) routes() {
 	a.Mux.HandleFunc("GET /api/admin/health", a.adminHealth)
 	a.Mux.HandleFunc("POST /api/admin/backup", a.adminBackup)
 	a.Mux.HandleFunc("GET /api/admin/providers", a.adminProviders)
-	a.Mux.HandleFunc("PUT /api/admin/providers/deepseek", a.adminUpdateProvider)
-	a.Mux.HandleFunc("POST /api/admin/providers/deepseek/check", a.adminCheckBalance)
+	a.Mux.HandleFunc("POST /api/admin/providers", a.adminCreateProvider)
+	a.Mux.HandleFunc("GET /api/admin/provider-kinds", a.adminProviderKinds)
+	a.Mux.HandleFunc("GET /api/admin/providers/{providerID}", a.adminGetProvider)
+	a.Mux.HandleFunc("PUT /api/admin/providers/{providerID}", a.adminUpdateProvider)
+	a.Mux.HandleFunc("DELETE /api/admin/providers/{providerID}", a.adminDeleteProvider)
+	a.Mux.HandleFunc("POST /api/admin/providers/{providerID}/check", a.adminCheckBalance)
+	a.Mux.HandleFunc("POST /api/admin/providers/{providerID}/validate", a.adminValidateProviderScript)
 
 	a.Mux.HandleFunc("POST /api/ingest/usage", a.ingestUsage)
 	a.Mux.HandleFunc("POST /api/ingest/balance", a.ingestBalance)

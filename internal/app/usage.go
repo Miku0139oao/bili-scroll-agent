@@ -2,21 +2,15 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
-	"net/url"
-	"os"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/Miku0139oao/bili-scroll-agent/internal/model"
+	"github.com/Miku0139oao/bili-scroll-agent/internal/provider"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/store"
-	"github.com/Miku0139oao/bili-scroll-agent/internal/version"
 )
 
 func (a *App) usage(w http.ResponseWriter, r *http.Request) {
@@ -141,31 +135,23 @@ func (a *App) usageDashboard(ctx context.Context, userID string, days int) (map[
 			})
 		}
 	}
-	balanceRows, _ := a.Store.DB.QueryContext(ctx, `
-		SELECT provider_id,currency,total_balance,granted_balance,topped_up_balance,
-			is_available,low_balance,source,fetched_at
-		FROM balance_snapshots WHERE user_id=? ORDER BY fetched_at DESC LIMIT 20`, userID)
-	balances := make([]map[string]any, 0)
-	seen := make(map[string]bool)
-	if balanceRows != nil {
-		defer balanceRows.Close()
-		for balanceRows.Next() {
-			var provider, currency, source, fetched string
-			var totalValue, granted, topped float64
-			var available, low int
-			if balanceRows.Scan(&provider, &currency, &totalValue, &granted, &topped,
-				&available, &low, &source, &fetched) != nil {
+	balances, _ := a.savedBalanceRows(ctx)
+	catalogRows, _ := a.Store.DB.QueryContext(ctx, `
+		SELECT provider_id,display_name,kind,enabled,currency
+		FROM provider_accounts ORDER BY provider_id`)
+	catalog := make([]map[string]any, 0)
+	if catalogRows != nil {
+		defer catalogRows.Close()
+		for catalogRows.Next() {
+			var providerID, displayName, kind, currency string
+			var enabled int
+			if catalogRows.Scan(&providerID, &displayName, &kind, &enabled, &currency) != nil {
 				continue
 			}
-			key := provider + "\x00" + currency
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			balances = append(balances, map[string]any{
-				"provider": provider, "currency": currency, "total": totalValue,
-				"granted": granted, "topped_up": topped, "available": available != 0,
-				"low": low != 0, "source": source, "fetched_at": fetched,
+			catalog = append(catalog, map[string]any{
+				"provider_id": providerID, "display_name": displayName, "kind": kind,
+				"enabled": enabled != 0, "currency": currency,
+				"supports_balance": a.Providers.SupportsBalance(kind),
 			})
 		}
 	}
@@ -182,8 +168,9 @@ func (a *App) usageDashboard(ctx context.Context, userID string, days int) (map[
 			"cache_hit_percent": cachePercent,
 		},
 		"daily": dailyResult, "providers": providers, "runs": runs, "balances": balances,
-		"generated_at": store.Now(),
-		"sources":      []string{"service runs", "cc-switch usage import", "DeepSeek balance dashboard import"},
+		"generated_at":     store.Now(),
+		"sources":          []string{"service runs", "cc-switch usage import", "provider balance checks"},
+		"provider_catalog": catalog,
 	}, nil
 }
 
@@ -249,108 +236,48 @@ func (a *App) ingestUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "updated": updated})
 }
 
+// refreshBalance refreshes one provider, or every enabled provider when no
+// provider is named.
 func (a *App) refreshBalance(w http.ResponseWriter, r *http.Request) {
 	identity, ok := a.requireCSRF(w, r)
 	if !ok {
 		return
 	}
-	result, err := a.refreshDeepSeekBalance(r.Context(), identity.User.ID)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+	var body struct {
+		Provider string `json:"provider"`
+	}
+	// The body is optional; an empty request refreshes everything.
+	_ = decodeOptionalJSON(r, &body)
+	response := map[string]any{"ok": true}
+	if body.Provider != "" {
+		payload, err := a.refreshProviderBalance(r.Context(), identity.User.ID, body.Provider)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		response["results"] = []map[string]any{payload}
+		if body.Provider == provider.KindDeepSeek {
+			// Preserve the pre-0.3 flat envelope for cached bundles.
+			for key, value := range payload {
+				response[key] = value
+			}
+		}
+		writeJSON(w, http.StatusOK, response)
 		return
 	}
-	result["ok"] = true
-	writeJSON(w, http.StatusOK, result)
-}
-
-func (a *App) refreshDeepSeekBalance(ctx context.Context, userID string) (map[string]any, error) {
-	baseURL := strings.TrimRight(firstNonEmptyText(os.Getenv("DEEPSEEK_BASE_URL"), "https://api.deepseek.com"), "/")
-	apiKey := strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
-	threshold := 10.0
-	var encrypted sql.NullString
-	var dbURL sql.NullString
-	var dbThreshold sql.NullFloat64
-	err := a.Store.DB.QueryRowContext(ctx, `
-		SELECT base_url,api_key_enc,low_balance_threshold
-		FROM provider_accounts WHERE provider_id='deepseek'`).
-		Scan(&dbURL, &encrypted, &dbThreshold)
-	if err == nil {
-		if apiKey == "" && encrypted.Valid && encrypted.String != "" {
-			raw, decryptErr := a.Cipher.DecryptBytes(encrypted.String, "provider:deepseek")
-			if decryptErr != nil {
-				return nil, decryptErr
+	results := a.refreshAllProviderBalances(r.Context(), identity.User.ID)
+	response["results"] = results
+	for _, item := range results {
+		if stringFromAny(item["provider"]) == provider.KindDeepSeek && item["error"] == nil {
+			for key, value := range item {
+				if key != "provider" && key != "display_name" {
+					response[key] = value
+				}
 			}
-			apiKey = string(raw)
-		}
-		if os.Getenv("DEEPSEEK_BASE_URL") == "" && dbURL.Valid && dbURL.String != "" {
-			baseURL = strings.TrimRight(dbURL.String, "/")
-		}
-		if dbThreshold.Valid {
-			threshold = dbThreshold.Float64
+			break
 		}
 	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("DeepSeek API key is not configured")
-	}
-	parsed, err := url.Parse(baseURL)
-	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
-		return nil, fmt.Errorf("invalid DeepSeek base URL")
-	}
-	if parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") {
-		return nil, fmt.Errorf("DeepSeek base URL must not include credentials or a path")
-	}
-	if parsed.Scheme == "http" && parsed.Hostname() != "127.0.0.1" &&
-		parsed.Hostname() != "localhost" && parsed.Hostname() != "::1" {
-		return nil, fmt.Errorf("non-HTTPS DeepSeek base URL is only allowed on loopback")
-	}
-	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/user/balance", nil)
-	request.Header.Set("Authorization", "Bearer "+apiKey)
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", version.UserAgent())
-	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("DeepSeek network error: %w", err)
-	}
-	defer response.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(response.Body, 2<<20))
-	if response.StatusCode == 401 {
-		return nil, fmt.Errorf("DeepSeek rejected the API key (HTTP 401)")
-	}
-	if response.StatusCode >= 400 {
-		return nil, fmt.Errorf("DeepSeek balance request failed (HTTP %d)", response.StatusCode)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, fmt.Errorf("DeepSeek returned invalid JSON")
-	}
-	infos, _ := payload["balance_infos"].([]any)
-	now := store.Now()
-	balances := make([]map[string]any, 0, len(infos))
-	for _, rawItem := range infos {
-		item, _ := rawItem.(map[string]any)
-		currency := firstNonEmptyText(stringFromAny(item["currency"]), "CNY")
-		totalValue := floatFromAny(item["total_balance"])
-		granted := floatFromAny(item["granted_balance"])
-		topped := floatFromAny(item["topped_up_balance"])
-		available := true
-		if value, ok := payload["is_available"].(bool); ok {
-			available = value
-		}
-		_, _ = a.Store.DB.ExecContext(ctx, `
-			INSERT INTO balance_snapshots(id,user_id,provider_id,currency,total_balance,
-				granted_balance,topped_up_balance,is_available,low_balance,source,fetched_at)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-			model.NewID(), userID, "deepseek", currency, totalValue, granted, topped,
-			boolInt(available), boolInt(totalValue < threshold), "deepseek-native", now)
-		balances = append(balances, map[string]any{
-			"provider": "deepseek", "currency": currency, "total": totalValue,
-			"granted": granted, "topped_up": topped, "available": available,
-			"low": totalValue < threshold, "source": "deepseek-native", "fetched_at": now,
-		})
-	}
-	return map[string]any{
-		"provider": "deepseek", "base_url": baseURL, "threshold": threshold, "balances": balances,
-	}, nil
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (a *App) ingestBalance(w http.ResponseWriter, r *http.Request) {

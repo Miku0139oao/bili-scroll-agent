@@ -207,7 +207,12 @@ func (a *App) callTool(
 		if err := requireScope(identity, "bili:read"); err != nil {
 			return nil, err
 		}
-		return a.refreshDeepSeekBalance(ctx, identity.User.ID)
+		return a.mcpRefreshBalances(ctx, identity.User.ID, args)
+	case "bili_providers":
+		if err := requireScope(identity, "bili:read"); err != nil {
+			return nil, err
+		}
+		return a.mcpProviders(ctx)
 	case "bili_config_get":
 		if err := requireScope(identity, "bili:config"); err != nil {
 			return nil, err
@@ -655,7 +660,9 @@ func mcpTools() []map[string]any {
 		tool("bili_report_get", "Return today's Markdown report.", readOnly(false), nil),
 		tool("bili_usage", "Return provider/model usage and balances.", readOnly(false),
 			props(map[string]any{"days": integer})),
-		tool("bili_balance_refresh", "Refresh DeepSeek balance.", write(false, true), nil),
+		tool("bili_balance_refresh", "Refresh provider balances for one provider or all enabled providers.", write(false, true),
+			props(map[string]any{"provider": str, "all": boolean})),
+		tool("bili_providers", "List configured providers and their current balances.", readOnly(false), nil),
 		tool("bili_config_get", "Read member preferences.", readOnly(false), nil),
 		tool("bili_config_update", "Update non-sensitive preferences.", write(false, false),
 			requiredProps(map[string]any{"patch": map[string]any{"type": "object"}}, "patch")),
