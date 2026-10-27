@@ -2,7 +2,6 @@ package app
 
 import (
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"github.com/Miku0139oao/bili-scroll-agent/internal/runner"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/security"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/store"
+	"github.com/Miku0139oao/bili-scroll-agent/internal/version"
 )
 
 func (a *App) adminUsers(w http.ResponseWriter, r *http.Request) {
@@ -300,7 +300,7 @@ func (a *App) adminHealth(w http.ResponseWriter, r *http.Request) {
 		size = info.Size()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "version": "0.2.0-go",
+		"ok": true, "version": version.String(),
 		"database":  map[string]any{"path": a.Settings.DatabasePath, "size_bytes": size},
 		"scheduler": map[string]any{"running": true},
 		"runners":   runner.Status(a.Settings),
@@ -436,5 +436,3 @@ func validUsername(value string) bool {
 func runnerStatus(settings *config.Settings) map[string]runner.Info {
 	return runner.Status(settings)
 }
-
-var _ = base64.RawURLEncoding

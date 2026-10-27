@@ -2,10 +2,18 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  go:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -16,10 +24,49 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Test Go
+      - name: Check formatting
         run: |
-          go test -race ./...
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Build plugin MCP before tests
+        run: |
+          mkdir -p internal/webui/dist plugins/bili-scroll-agent/bin
+          touch internal/webui/dist/.gitkeep
+          go build -trimpath -o plugins/bili-scroll-agent/bin/bili-scroll-mcp ./cmd/bili-scroll-mcp
+
+      - name: Vet and test
+        env:
+          BILI_SCROLL_REQUIRE_PLUGIN_BINARY: "1"
+        run: |
           go vet ./...
+          go test -race -count=1 ./...
+
+      - name: Static analysis
+        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+
+      - name: Vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: Build release binaries
+        run: |
+          go build -trimpath ./cmd/bili-scroll-server
+          go build -trimpath ./cmd/bili-scroll-mcp
+          go build -trimpath ./cmd/bili-scroll-usage-sync
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2.2.0
@@ -39,12 +86,12 @@ jobs:
           mkdir -p internal/webui/dist
           cp -a web/dist/. internal/webui/dist/
           go build -trimpath ./cmd/bili-scroll-server
-          go build -trimpath ./cmd/bili-scroll-mcp
-          go build -trimpath ./cmd/bili-scroll-usage-sync
-
-      - name: Validate configuration fixtures
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate shell scripts
         run: |
           bash -n deploy/install.sh
           bash -n deploy/update.sh
           bash -n deploy/backup.sh
-

@@ -15,6 +15,7 @@ import (
 	"github.com/Miku0139oao/bili-scroll-agent/internal/runner"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/security"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/store"
+	"github.com/Miku0139oao/bili-scroll-agent/internal/version"
 )
 
 func (a *App) status(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +68,7 @@ func (a *App) status(w http.ResponseWriter, r *http.Request) {
 		"active_run":     runJSON(a.activeRun(r.Context(), identity.User.ID)),
 		"latest_run":     runJSON(a.latestRun(r.Context(), identity.User.ID)),
 		"admin_settings": map[string]any{"outbound_enabled": admin.OutboundEnabled},
-		"version":        "0.2.0-go",
+		"version":        version.String(),
 	})
 }
 
@@ -311,7 +312,7 @@ func (a *App) diagnostics(w http.ResponseWriter, r *http.Request) {
 	_ = a.Store.DB.QueryRowContext(r.Context(),
 		`SELECT COUNT(*) FROM bili_credentials WHERE user_id=?`, identity.User.ID).Scan(&credentialCount)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "version": "0.2.0-go", "user_id": identity.User.ID,
+		"ok": true, "version": version.String(), "user_id": identity.User.ID,
 		"runner": config.Runner, "runners": runner.Status(a.Settings),
 		"bilibili_logged_in": credentialCount > 0,
 		"outbound": map[string]any{
@@ -416,7 +417,7 @@ func (a *App) cover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	request, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, source, nil)
-	request.Header.Set("User-Agent", "bili-scroll-agent/0.2")
+	request.Header.Set("User-Agent", version.UserAgent())
 	response, err := http.DefaultClient.Do(request)
 	if err != nil || response.StatusCode != http.StatusOK {
 		writeError(w, http.StatusBadGateway, "cover download failed")

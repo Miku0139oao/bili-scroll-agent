@@ -44,6 +44,12 @@ func TestPortablePluginAndLocalMCPManifest(t *testing.T) {
 	}
 	executable := filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(server.Command, "./")))
 	if info, err := os.Stat(executable); err != nil || info.IsDir() {
+		// The binary is a build artifact and is no longer tracked. CI and
+		// scripts/build.ps1 build it before running tests and set the flag so a
+		// stale or missing artifact still fails there.
+		if os.Getenv("BILI_SCROLL_REQUIRE_PLUGIN_BINARY") == "" {
+			t.Skipf("local MCP binary not built at %s; run scripts/build.ps1 or set BILI_SCROLL_REQUIRE_PLUGIN_BINARY=1", executable)
+		}
 		t.Fatalf("local MCP binary missing at %s", executable)
 	}
 }

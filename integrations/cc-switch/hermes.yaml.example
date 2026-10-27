@@ -10,5 +10,5 @@ mcp_servers:
 
 skills:
   external_dirs:
-    - "D:/deepseek-bilbili-codex/plugins/bili-scroll-agent/skills"
+    - "<repo>/plugins/bili-scroll-agent/skills"
 

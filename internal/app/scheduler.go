@@ -96,10 +96,6 @@ func (a *App) scheduleTick(ctx context.Context) {
 	a.scheduleRun(run, token, "")
 }
 
-func runStatus(run model.Run) string {
-	return run.Status
-}
-
 func (a *App) pollDMWatchers(ctx context.Context) {
 	rows, err := a.Store.DB.QueryContext(ctx,
 		`SELECT id FROM users WHERE disabled=0 ORDER BY created_at`)

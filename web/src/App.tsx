@@ -38,7 +38,6 @@ import type {
   DeliveryRow,
   MemberConfig,
   PublicUser,
-  RunInfo,
   StatusPayload,
   TokenRow,
   UiLanguage,
@@ -48,29 +47,6 @@ import type {
 
 type Page = "daily" | "preferences" | "interaction" | "usage" | "advanced" | "admin";
 type Toast = { tone: "ok" | "warn" | "error"; text: string } | null;
-
-const EMPTY_CONFIG: MemberConfig = {
-  runner: "codex",
-  keywords: [],
-  persona: "",
-  perDay: 5,
-  reportLevel: "full",
-  language: "zh-TW",
-  autoComment: false,
-  commentPerRound: 1,
-  mentionName: "",
-  dmMode: "off",
-  dmUid: 0,
-  replyToComments: false,
-  replyPerRound: 1,
-  dmWatch: false,
-  dmWatchMinutes: 5,
-  dmReplyPerDay: 0,
-  favFolderId: 0,
-  transcribe: false,
-  asrModel: "small",
-  schedule: { enabled: false, time: "20:00", timezone: "Asia/Shanghai" },
-};
 
 function errorText(error: unknown): string {
   if (error instanceof ApiError) return error.detail;
@@ -761,13 +737,6 @@ function DailyPage({
     } catch (reason) {
       setToast({ tone: "error", text: errorText(reason) });
     }
-  };
-
-  const saveSchedule = async () => {
-    setBusy("schedule");
-    const ok = await saveConfig({ schedule });
-    setBusy("");
-    if (ok) await reload();
   };
 
   return (

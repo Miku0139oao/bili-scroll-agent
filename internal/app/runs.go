@@ -574,15 +574,6 @@ delivery_drafts 必須包含一則 kind="dm"、500 字內的精選摘要，targe
 		config.AutoComment, config.DMMode, config.DMUID)
 }
 
-type runnerRequestAdapter struct {
-	Run       model.Run
-	Token     string
-	Prompt    string
-	Provider  string
-	Model     string
-	Reasoning string
-}
-
 func runnerAPI(
 	ctx context.Context,
 	app *App,
@@ -632,14 +623,4 @@ func runJSON(run *model.Run) any {
 		value["error"] = run.Error
 	}
 	return value
-}
-
-func sortRunRows(rows []model.Run) {
-	for i := 0; i < len(rows); i++ {
-		for j := i + 1; j < len(rows); j++ {
-			if rows[j].ScheduledFor > rows[i].ScheduledFor {
-				rows[i], rows[j] = rows[j], rows[i]
-			}
-		}
-	}
 }

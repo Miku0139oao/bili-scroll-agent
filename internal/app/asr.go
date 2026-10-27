@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Miku0139oao/bili-scroll-agent/internal/version"
 )
 
 func (a *App) transcribe(ctx context.Context, userID, bvid, modelName string) (map[string]any, error) {
@@ -77,7 +79,7 @@ func download(ctx context.Context, source, cookie, target string) error {
 	if err != nil {
 		return err
 	}
-	request.Header.Set("User-Agent", "bili-scroll-agent/0.2-go")
+	request.Header.Set("User-Agent", version.UserAgent())
 	request.Header.Set("Referer", "https://www.bilibili.com/")
 	if cookie != "" {
 		request.Header.Set("Cookie", cookie)

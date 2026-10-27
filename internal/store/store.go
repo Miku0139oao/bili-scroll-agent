@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -95,15 +93,4 @@ func NullString(value sql.NullString) string {
 		return value.String
 	}
 	return ""
-}
-
-func ExecScript(path string) error {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	if len(raw) == 0 {
-		return errors.New("empty SQL script")
-	}
-	return nil
 }

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/Miku0139oao/bili-scroll-agent/internal/version"
 )
 
 type usageRow struct {
@@ -124,7 +126,7 @@ func upload(server, token string, rows []usageRow) error {
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("User-Agent", "bili-scroll-go-usage-sync/0.2")
+	request.Header.Set("User-Agent", version.UsageSyncUserAgent())
 	response, err := (&http.Client{Timeout: 30 * time.Second}).Do(request)
 	if err != nil {
 		return err

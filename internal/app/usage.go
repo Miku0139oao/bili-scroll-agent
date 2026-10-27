@@ -16,6 +16,7 @@ import (
 
 	"github.com/Miku0139oao/bili-scroll-agent/internal/model"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/store"
+	"github.com/Miku0139oao/bili-scroll-agent/internal/version"
 )
 
 func (a *App) usage(w http.ResponseWriter, r *http.Request) {
@@ -305,7 +306,7 @@ func (a *App) refreshDeepSeekBalance(ctx context.Context, userID string) (map[st
 	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/user/balance", nil)
 	request.Header.Set("Authorization", "Bearer "+apiKey)
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", "bili-scroll-agent/0.2-go")
+	request.Header.Set("User-Agent", version.UserAgent())
 	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("DeepSeek network error: %w", err)

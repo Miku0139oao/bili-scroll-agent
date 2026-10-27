@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -21,6 +20,7 @@ import (
 	"github.com/Miku0139oao/bili-scroll-agent/internal/config"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/security"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/store"
+	"github.com/Miku0139oao/bili-scroll-agent/internal/version"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/webui"
 )
 
@@ -193,7 +193,7 @@ func (a *App) middleware(next http.Handler) http.Handler {
 
 func (a *App) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "service": "bili-scroll-agent", "version": "0.2.0-go",
+		"ok": true, "service": "bili-scroll-agent", "version": version.String(),
 	})
 }
 
@@ -353,29 +353,11 @@ func boolInt(value bool) int {
 	return 0
 }
 
-func intBool(value int64) bool {
-	return value != 0
-}
-
 func nullTime(value sql.NullString) string {
 	if !value.Valid {
 		return ""
 	}
 	return value.String
-}
-
-func limitBody(reader io.Reader) io.Reader {
-	return io.LimitReader(reader, maxJSONBody)
-}
-
-func canonicalJSON(raw []byte) (map[string]any, error) {
-	var value map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	if err := decoder.Decode(&value); err != nil {
-		return nil, err
-	}
-	return value, nil
 }
 
 func intFromAny(value any, fallback int) int {

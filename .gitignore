@@ -1,4 +1,4 @@
-.data/
+.data*/
 .env
 .venv/
 __pycache__/
@@ -11,8 +11,20 @@ web/dist/
 web/*.tsbuildinfo
 web/vite.config.js
 web/vite.config.d.ts
+
+# Build artifacts are untracked: the WebUI bundle is embedded from
+# internal/webui/dist (built by scripts/build.ps1 and CI), and the plugin
+# MCP binary is rebuilt per platform.
+internal/webui/dist/*
+!internal/webui/dist/.gitkeep
+plugins/*/bin/
 plugins/bili-scroll-agent/.DS_Store
+
+# Local databases and their SQLite sidecars.
+*.db
+*.db-shm
+*.db-wal
+
 *.log
 *.test
 coverage.out
-

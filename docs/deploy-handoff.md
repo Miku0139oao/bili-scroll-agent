@@ -106,7 +106,7 @@
 
   curl -fsS https://<DOMAIN>/api/health
 
-必須回傳 service=bili-scroll-agent 與 version=0.2.0-go。
+必須回傳 service=bili-scroll-agent 與 version=0.3.0-go。
 
 ## 5. 第一位 Admin
 

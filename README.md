@@ -37,14 +37,14 @@ deploy/                   # systemd、Caddy、安裝、更新、備份
 
 需求：
 
-- Go 1.22+
+- Go 1.26+
 - Bun
 - Codex 與／或 Hermes Agent
 
 完整建置並啟動 server：
 
 ```powershell
-cd D:\deepseek-bilbili-codex
+cd <repo>
 powershell -ExecutionPolicy Bypass -File .\scripts\start-dev.ps1
 ```
 
@@ -111,7 +111,7 @@ Plugin 位於 [`plugins/bili-scroll-agent`](plugins/bili-scroll-agent)，包含�
 本機 marketplace：
 
 ```powershell
-codex plugin marketplace add D:\deepseek-bilbili-codex
+codex plugin marketplace add <repo>
 codex plugin add bili-scroll-agent@bili-scroll-local
 ```
 
