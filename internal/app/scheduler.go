@@ -216,7 +216,8 @@ func buildDMPrompt(runID, userID, message, persona string) string {
 私訊原文：%q
 %s
 用純文字回覆，最多 100 字，不要 markdown，不要提到內部流程。
-完成後呼叫 bili_finish_dm_reply，text 必須是你真正要發出的文字。
+不要再呼叫 bili_status、bili_begin_run、bili_search 或任何其他工具。
+唯一允許的動作是呼叫 bili_finish_dm_reply，將你真正要發出的文字放在 text 參數。
 `, runID, userID, truncateText(message, 600), style)
 }
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Miku0139oao/bili-scroll-agent/internal/bilibili"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/model"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/runner"
 	"github.com/Miku0139oao/bili-scroll-agent/internal/store"
@@ -156,10 +157,16 @@ func (a *App) callTool(
 		if err != nil {
 			return nil, err
 		}
+		anonymous := false
+		if flag, ok := args["anonymous"].(bool); ok && flag {
+			credential = bilibili.Credential{}
+			anonymous = true
+		}
 		comments, err := a.Bili.Comments(ctx, credential, stringArg(args, "bvid"),
-			clamp(intArg(args, "num", 30), 1, 50))
+			clamp(intArg(args, "num", 20), 1, 20))
 		return map[string]any{
-			"bvid": stringArg(args, "bvid"), "count": len(comments), "comments": comments,
+			"bvid": stringArg(args, "bvid"), "anonymous": anonymous,
+			"count": len(comments), "comments": comments,
 		}, err
 	case "bili_transcribe":
 		if err := requireScope(identity, "bili:asr"); err != nil {
@@ -290,8 +297,17 @@ func (a *App) callTool(
 		if err := requireScope(identity, "bili:read"); err != nil {
 			return nil, err
 		}
-		checked, err := a.verifyRecentDeliveries(ctx, identity.User.ID, 10)
-		return map[string]any{"ok": true, "checked": checked}, err
+		comments, commentErr := a.verifyRecentDeliveries(ctx, identity.User.ID, 10)
+		dms, dmErr := a.verifyRecentDMs(ctx, identity.User.ID, 10)
+		checked := append(comments, dms...)
+		result := map[string]any{"ok": commentErr == nil && dmErr == nil, "checked": checked}
+		if commentErr != nil {
+			result["comment_error"] = commentErr.Error()
+		}
+		if dmErr != nil {
+			result["dm_error"] = dmErr.Error()
+		}
+		return result, nil
 	case "bili_pending_comment_replies":
 		if err := requireScope(identity, "bili:read"); err != nil {
 			return nil, err
@@ -304,6 +320,32 @@ func (a *App) callTool(
 		}
 		replies, err := a.pendingCommentReplies(ctx, identity.User.ID)
 		return map[string]any{"ok": true, "enabled": true, "replies": replies}, err
+	case "bili_user_info":
+		if err := requireScope(identity, "bili:read"); err != nil {
+			return nil, err
+		}
+		credential, err := a.credential(ctx, identity.User.ID)
+		if err != nil {
+			return nil, err
+		}
+		return a.Bili.UserCard(ctx, credential, int64(intArg(args, "uid", 0)))
+	case "bili_dm_messages":
+		if err := requireScope(identity, "bili:read"); err != nil {
+			return nil, err
+		}
+		config, err := a.loadConfig(ctx, identity.User.ID)
+		if err != nil {
+			return nil, err
+		}
+		if config.DMUID <= 0 {
+			return nil, errors.New("DM UID is not configured")
+		}
+		credential, err := a.credential(ctx, identity.User.ID)
+		if err != nil {
+			return nil, err
+		}
+		messages, err := a.Bili.DMMessages(ctx, credential, config.DMUID, clamp(intArg(args, "num", 20), 1, 50))
+		return map[string]any{"ok": true, "uid": config.DMUID, "messages": messages}, err
 	case "bili_send_comment":
 		return a.mcpSendComment(ctx, identity, args)
 	case "bili_send_dm":
@@ -466,9 +508,16 @@ func (a *App) mcpSendComment(
 	if len(textValue) > 150 {
 		textValue = textValue[:150]
 	}
+	mentionName := ""
+	mentionUID := int64(0)
+	if !reply && config.MentionName != "" {
+		mentionName = config.MentionName
+		mentionUID = config.DMUID
+	}
 	result, err := a.Bili.SendComment(
 		ctx, credential, video.AID, textValue,
 		int64(intArg(args, "rpid", 0)), int64(intArg(args, "root", 0)),
+		mentionName, mentionUID,
 	)
 	if err != nil {
 		return nil, err
@@ -598,7 +647,7 @@ func mcpTools() []map[string]any {
 		tool("bili_subtitle", "Fetch full subtitle text.", readOnly(true),
 			requiredProps(map[string]any{"bvid": str}, "bvid")),
 		tool("bili_comments", "Fetch popular comments.", readOnly(true),
-			requiredProps(map[string]any{"bvid": str, "num": integer}, "bvid")),
+			requiredProps(map[string]any{"bvid": str, "num": integer, "anonymous": boolean}, "bvid")),
 		tool("bili_transcribe", "Run optional local speech recognition.", readOnly(true),
 			requiredProps(map[string]any{"bvid": str, "model": str}, "bvid")),
 		tool("bili_finish_run", "Validate and atomically commit the active run.", write(false, false),
@@ -618,15 +667,19 @@ func mcpTools() []map[string]any {
 			props(map[string]any{"run_id": str})),
 		tool("bili_verify_deliveries", "Verify recent comment visibility.", write(false, true), nil),
 		tool("bili_pending_comment_replies", "List replies needing attention.", readOnly(true), nil),
-		tool("bili_send_comment", "Explicitly post a comment.", write(true, true),
+		tool("bili_user_info", "Fetch a Bilibili user's public profile.", readOnly(true),
+			requiredProps(map[string]any{"uid": integer}, "uid")),
+		tool("bili_dm_messages", "Fetch recent private messages for the configured owner UID.", readOnly(true),
+			requiredProps(map[string]any{"num": integer}, "num")),
+		tool("bili_send_comment", "Explicitly post a comment.", write(false, true),
 			requiredProps(map[string]any{
 				"bvid": str, "text": str, "rpid": integer, "root": integer, "confirm": boolean,
 			}, "bvid", "text", "confirm")),
-		tool("bili_send_dm", "Explicitly send one private message.", write(true, true),
+		tool("bili_send_dm", "Explicitly send one private message.", write(false, true),
 			requiredProps(map[string]any{
 				"text": str, "receiver_uid": integer, "confirm": boolean,
 			}, "text", "confirm")),
-		tool("bili_finish_dm_reply", "Finish a DM watcher run.", write(true, true),
+		tool("bili_finish_dm_reply", "Finish a DM watcher run.", write(false, false),
 			requiredProps(map[string]any{"text": str}, "text")),
 	}
 }

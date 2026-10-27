@@ -397,10 +397,24 @@ func intFromAny(value any, fallback int) int {
 }
 
 func stringFromAny(value any) string {
-	if text, ok := value.(string); ok {
-		return text
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case json.Number:
+		return typed.String()
+	case float64:
+		return strconv.FormatInt(int64(typed), 10)
+	case float32:
+		return strconv.FormatInt(int64(typed), 10)
+	case int:
+		return strconv.Itoa(typed)
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	case uint64:
+		return strconv.FormatUint(typed, 10)
+	default:
+		return ""
 	}
-	return ""
 }
 
 func isNoRows(err error) bool {

@@ -51,6 +51,7 @@ func (a *App) processDeliveries(
 			commentText[item.BVID] = textValue
 		}
 	}
+	hasDMDraft := false
 	for _, draft := range drafts {
 		kind := strings.ToLower(strings.TrimSpace(draft.Kind))
 		switch kind {
@@ -61,6 +62,7 @@ func (a *App) processDeliveries(
 				}
 			}
 		case "dm", "private_message":
+			hasDMDraft = true
 			if config.DMMode != "only" && config.DMMode != "both" {
 				continue
 			}
@@ -74,14 +76,60 @@ func (a *App) processDeliveries(
 			result = append(result, item)
 		}
 	}
-	for bvid, textValue := range commentText {
-		if !config.AutoComment || config.DMMode == "only" {
-			continue
+	if !hasDMDraft && len(picked) > 0 && (config.DMMode == "only" || config.DMMode == "both") {
+		result = append(result, a.deliverDM(ctx, credential, user.ID, runID, config.DMUID,
+			buildPickedDigestDM(picked)))
+	}
+	commentLimit := config.CommentPerRound
+	if commentLimit < 0 {
+		commentLimit = 0
+	}
+	if commentLimit > 20 {
+		commentLimit = 20
+	}
+	sentComments := 0
+	if config.AutoComment && config.DMMode != "only" {
+		for _, pickedItem := range picked {
+			if sentComments >= commentLimit {
+				break
+			}
+			textValue, exists := commentText[pickedItem.BVID]
+			if !exists {
+				continue
+			}
+			item := a.deliverComment(ctx, credential, user.ID, runID, config, pickedItem.BVID, textValue)
+			result = append(result, item)
+			sentComments++
 		}
-		item := a.deliverComment(ctx, credential, user.ID, runID, config, bvid, textValue)
-		result = append(result, item)
 	}
 	return result
+}
+
+func buildPickedDigestDM(picked []model.PickedItem) string {
+	var builder strings.Builder
+	builder.WriteString("今日 B 站精選\n")
+	for index, item := range picked {
+		if index >= 10 {
+			break
+		}
+		builder.WriteString(strconv.Itoa(index + 1))
+		builder.WriteString(". ")
+		builder.WriteString(strings.TrimSpace(item.Title))
+		if item.BVID != "" {
+			builder.WriteString("｜")
+			builder.WriteString(item.BVID)
+		}
+		if line := strings.TrimSpace(item.OneLiner); line != "" {
+			builder.WriteString("｜")
+			builder.WriteString(line)
+		}
+		builder.WriteString("\n")
+	}
+	runes := []rune(strings.TrimSpace(builder.String()))
+	if len(runes) > 500 {
+		return string(runes[:499]) + "…"
+	}
+	return string(runes)
 }
 
 func (a *App) deliverComment(
@@ -119,7 +167,13 @@ func (a *App) deliverComment(
 			deliveryID, userID, runID, bvid, "comment", textValue, status, remoteID,
 			"", 1, nullIfEmpty(errorMessage), store.Now(), store.Now())
 	}
-	receipt, err := a.Bili.SendComment(ctx, credential, video.AID, textValue, 0, 0)
+	mentionUID := int64(0)
+	if config.MentionName != "" {
+		mentionUID = config.DMUID
+	}
+	receipt, err := a.Bili.SendComment(
+		ctx, credential, video.AID, textValue, 0, 0, config.MentionName, mentionUID,
+	)
 	if err != nil {
 		insertDelivery("failed", "", err.Error())
 		return map[string]any{"kind": "comment", "bvid": bvid, "ok": false, "error": err.Error()}
@@ -171,7 +225,7 @@ func (a *App) deliverDM(
 			root_id,attempts,error,created_at,sent_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		model.NewID(), userID, runID, "", "dm", textValue, status, remoteID,
-		"", 1, nullIfEmpty(errorMessage), store.Now(), store.Now())
+		strconv.FormatInt(receiverUID, 10), 1, nullIfEmpty(errorMessage), store.Now(), store.Now())
 	if err != nil {
 		return map[string]any{"kind": "dm", "ok": false, "error": err.Error()}
 	}
@@ -228,7 +282,7 @@ func (a *App) pendingCommentReplies(ctx context.Context, userID string) ([]map[s
 	for _, target := range targets {
 		bvid := stringFromAny(target["bvid"])
 		remoteID := stringFromAny(target["remote_id"])
-		comments, err := a.Bili.Comments(ctx, credential, bvid, 100)
+		comments, err := a.Bili.Comments(ctx, credential, bvid, 20)
 		if err != nil {
 			continue
 		}

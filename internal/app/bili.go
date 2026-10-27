@@ -252,7 +252,7 @@ func (a *App) verifyRecentDeliveries(
 	}
 	checked := make([]map[string]any, 0)
 	for _, item := range targets {
-		comments, err := a.Bili.Comments(ctx, credential, item.BVID, 100)
+		comments, err := a.Bili.Comments(ctx, credential, item.BVID, 20)
 		if err != nil {
 			continue
 		}
@@ -270,6 +270,80 @@ func (a *App) verifyRecentDeliveries(
 		checked = append(checked, map[string]any{
 			"id": item.ID, "bvid": item.BVID, "visible": visible,
 		})
+	}
+	return checked, nil
+}
+
+func (a *App) verifyRecentDMs(
+	ctx context.Context,
+	userID string,
+	maxItems int,
+) ([]map[string]any, error) {
+	credential, err := a.credential(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.Store.DB.QueryContext(ctx, `
+		SELECT id,COALESCE(remote_id,''),COALESCE(root_id,'') FROM deliveries
+		WHERE user_id=? AND kind='dm' AND status='sent' AND verified_at IS NULL
+		ORDER BY sent_at LIMIT ?`, userID, maxItems)
+	if err != nil {
+		return nil, err
+	}
+	type target struct {
+		ID, RemoteID, ReceiverUID string
+	}
+	targets := make([]target, 0)
+	if rows != nil {
+		for rows.Next() {
+			var item target
+			if rows.Scan(&item.ID, &item.RemoteID, &item.ReceiverUID) == nil {
+				targets = append(targets, item)
+			}
+		}
+		rows.Close()
+	}
+	checked := make([]map[string]any, 0)
+	for _, item := range targets {
+		result := map[string]any{"id": item.ID, "kind": "dm", "receiver_uid": item.ReceiverUID}
+		receiverUID, parseErr := strconv.ParseInt(item.ReceiverUID, 10, 64)
+		if parseErr != nil || receiverUID <= 0 {
+			result["visible"] = false
+			result["error"] = "DM receiver UID is missing"
+			checked = append(checked, result)
+			continue
+		}
+		messages, messageErr := a.Bili.DMMessages(ctx, credential, receiverUID, 50)
+		if messageErr != nil {
+			result["visible"] = false
+			result["error"] = messageErr.Error()
+			checked = append(checked, result)
+			continue
+		}
+		visible := false
+		for _, message := range messages {
+			if item.RemoteID != "" && stringFromAny(message["key"]) == item.RemoteID {
+				visible = true
+				break
+			}
+		}
+		sessionPresent := false
+		if sessions, sessionErr := a.Bili.DMSessions(ctx, credential); sessionErr == nil {
+			for _, session := range sessions {
+				if int64FromAny(session["uid"]) == receiverUID {
+					sessionPresent = true
+					break
+				}
+			}
+		} else {
+			result["session_error"] = sessionErr.Error()
+		}
+		_, _ = a.Store.DB.ExecContext(ctx, `
+			UPDATE deliveries SET verified_at=?,visible=? WHERE id=?`,
+			store.Now(), boolInt(visible), item.ID)
+		result["visible"] = visible
+		result["session_present"] = sessionPresent
+		checked = append(checked, result)
 	}
 	return checked, nil
 }

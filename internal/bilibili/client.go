@@ -442,16 +442,23 @@ func (c *Client) Comments(
 	if num < 1 {
 		num = 30
 	}
-	if num > 100 {
-		num = 100
+	if num > 20 {
+		num = 20
 	}
 	query := url.Values{
 		"type": {"1"}, "oid": {strconv.Itoa(aid)}, "pn": {"1"},
-		"ps": {strconv.Itoa(num)}, "sort": {"2"},
+		"ps": {strconv.Itoa(num)}, "sort": {"0"},
+	}
+	cookie := credential.Cookie()
+	if credential.DedeUserID == "" {
+		if err := c.prepareAnonymous(ctx); err != nil {
+			return nil, err
+		}
+		cookie = c.anonCookie
 	}
 	payload, err := c.getJSON(ctx,
 		"https://api.bilibili.com/x/v2/reply?"+query.Encode(),
-		credential.Cookie(), "https://www.bilibili.com/video/"+bvid)
+		cookie, "https://www.bilibili.com/video/"+bvid)
 	if err != nil {
 		return nil, err
 	}
@@ -477,8 +484,9 @@ func (c *Client) Comments(
 		}
 		result = append(result, map[string]any{
 			"rpid": reply["rpid"], "author": text(member["uname"]), "uid": member["mid"],
-			"content": text(content["message"]), "like": integer(reply["like"]),
-			"reply_count": integer(reply["rcount"]), "children": children,
+			"content": text(content["message"]), "members": content["members"],
+			"like": integer(reply["like"]), "reply_count": integer(reply["rcount"]),
+			"children": children,
 		})
 		if len(result) >= num {
 			break
@@ -532,11 +540,20 @@ func (c *Client) SendComment(
 	aid int64,
 	textValue string,
 	parentID, rootID int64,
+	mentionName string,
+	mentionUID int64,
 ) (map[string]any, error) {
 	form := url.Values{
 		"oid": {strconv.FormatInt(aid, 10)}, "type": {"1"},
-		"message": {strings.TrimSpace(textValue)}, "plat": {"1"},
-		"csrf": {credential.BiliJCT},
+		"message":     {strings.TrimSpace(textValue)},
+		"plat":        {"1"},
+		"statistics":  {`{"appId":100,"platform":5}`},
+		"gaia_source": {"main_web"},
+		"csrf":        {credential.BiliJCT},
+	}
+	if mentionName != "" && mentionUID > 0 {
+		form.Set("at_name", mentionName)
+		form.Set("at_uid", strconv.FormatInt(mentionUID, 10))
 	}
 	if parentID > 0 {
 		form.Set("parent", strconv.FormatInt(parentID, 10))
@@ -570,6 +587,22 @@ func (c *Client) SelfInfo(ctx context.Context, credential Credential) (map[strin
 	data := object(payload["data"])
 	return map[string]any{
 		"ok": true, "uid": data["mid"], "nickname": data["uname"], "avatar": data["face"],
+	}, nil
+}
+
+func (c *Client) UserCard(ctx context.Context, credential Credential, uid int64) (map[string]any, error) {
+	payload, err := c.getJSON(ctx,
+		fmt.Sprintf("https://api.bilibili.com/x/web-interface/card?mid=%d", uid),
+		credential.Cookie(), "https://www.bilibili.com/")
+	if err != nil {
+		return nil, err
+	}
+	if integer(payload["code"]) != 0 {
+		return nil, fmt.Errorf("user card failed: %s", text(payload["message"]))
+	}
+	card := object(object(payload["data"])["card"])
+	return map[string]any{
+		"uid": integer(card["mid"]), "nickname": text(card["name"]), "avatar": text(card["face"]),
 	}, nil
 }
 

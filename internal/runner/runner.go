@@ -84,6 +84,7 @@ func runCodex(ctx context.Context, settings *config.Settings, request Request) (
 	args := []string{
 		"exec", "--ephemeral", "--skip-git-repo-check", "-C", work,
 		"-c", `approval_policy="never"`,
+		"--disable", "plugins",
 		"-c", `sandbox_mode="read-only"`,
 		"-c", `mcp_servers.bili_scroll.url="http://127.0.0.1:` + fmt.Sprint(settings.Port) + `/api/mcp"`,
 		"-c", `mcp_servers.bili_scroll.bearer_token_env_var="BILI_SCROLL_TOKEN"`,
